@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { toast } from 'sonner'
+import { Toaster } from 'sonner'
 
 export default function PreviewPage() {
   const router = useRouter()
@@ -10,149 +10,146 @@ export default function PreviewPage() {
   const [parsing, setParsing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [data, setData] = useState<any[]>([])
-  const [selectedRule, setSelectedRule] = useState('')
+  const [errors, setErrors] = useState<any[]>([])
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0])
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0]
+    if (selectedFile) {
+      setFile(selectedFile)
+      console.log('文件已选择:', selectedFile.name, selectedFile.size, selectedFile.type)
     }
   }
 
   const handleUpload = async () => {
+    console.log('=== 开始上传 ===')
+    
     if (!file) {
-      toast.error('请选择文件')
-      console.error('No file selected')
+      alert('请先选择文件！')
       return
     }
 
-    console.log('Starting upload:', file.name, file.size, file.type)
+    console.log('上传文件:', file.name)
     setParsing(true)
     setProgress(10)
+    setErrors([])
 
     try {
       const formData = new FormData()
       formData.append('file', file)
-      if (selectedRule) formData.append('ruleId', selectedRule)
 
-      console.log('Sending request to /api/parse...')
-      setProgress(30)
+      console.log('发送请求...')
+      setProgress(40)
 
       const res = await fetch('/api/parse', { 
         method: 'POST', 
         body: formData 
       })
       
-      console.log('Response status:', res.status, res.statusText)
-      setProgress(60)
+      console.log('响应状态:', res.status)
+      setProgress(70)
       
       const result = await res.json()
-      console.log('Response data:', result)
-      
+      console.log('完整响应:', result)
       setProgress(100)
       
       if (!res.ok) {
         const errorMsg = result.error || result.hint || '解析失败'
-        toast.error(errorMsg)
+        alert(errorMsg)
         setParsing(false)
         return
       }
       
       setData(result.data || [])
-      toast.success(`解析成功：有效${result.validCount}条，错误${result.errors?.length || 0}条`)
+      setErrors(result.errors || [])
       
-      if (result.errors?.length > 0) {
-        result.errors.forEach((err: any) => {
-          toast.error(`第${err.rowIndex}行：${err.message}`)
-        })
-      }
+      const successMsg = `解析成功！\n有效数据：${result.validCount}条\n错误：${result.errors?.length || 0}条`
+      alert(successMsg)
       
       setParsing(false)
     } catch (error: any) {
-      console.error('Upload error:', error)
+      console.error('上传错误:', error)
+      alert('解析失败：' + error.message)
       setParsing(false)
-      toast.error('解析失败：' + (error.message || '网络错误'))
     }
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-teal-50 p-8">
+      <Toaster position="top-center" richColors />
+      
       <div className="max-w-6xl mx-auto">
         <header className="mb-8">
           <a href="/" className="text-teal-600 hover:underline mb-4 inline-block">← 返回首页</a>
           <h1 className="text-3xl font-bold text-teal-600 mb-2">数据预览</h1>
-          <p className="text-gray-600">上传文件、AI 解析、编辑并提交数据</p>
+          <p className="text-gray-600">上传 Excel 文件并解析数据</p>
         </header>
 
         {/* 文件上传 */}
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">1. 上传文件</h2>
-          <div className="border-2 border-dashed border-teal-300 rounded-lg p-8 text-center">
+          <h2 className="text-xl font-semibold mb-4">1. 选择 Excel 文件</h2>
+          <div className="space-y-4">
             <input
               type="file"
-              accept=".xlsx,.xls,.docx,.pdf"
-              onChange={handleFileSelect}
-              className="hidden"
-              id="file-upload"
+              accept=".xlsx,.xls"
+              onChange={handleFileChange}
+              className="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-lg file:border-0
+                file:text-sm file:font-semibold
+                file:bg-teal-50 file:text-teal-700
+                hover:file:bg-teal-100"
+              id="file-input"
             />
-            <label htmlFor="file-upload" className="cursor-pointer">
-              <div className="text-teal-600 text-4xl mb-2">📄</div>
-              <div className="text-gray-700 font-medium">
-                {file ? file.name : '点击选择文件或拖拽到此处'}
+            
+            {file && (
+              <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
+                <p className="text-teal-800 font-medium">已选择的文件:</p>
+                <p className="text-teal-700">📄 {file.name}</p>
+                <p className="text-teal-600 text-sm">大小：{(file.size / 1024).toFixed(2)} KB</p>
               </div>
-              <div className="text-sm text-gray-500 mt-2">
-                支持 Excel (.xlsx/.xls)、Word (.docx)、PDF (.pdf)
-              </div>
-            </label>
-          </div>
-        </div>
-
-        {/* 规则选择 */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">2. 选择解析规则</h2>
-          <div className="flex gap-3">
-            <select
-              value={selectedRule}
-              onChange={(e) => setSelectedRule(e.target.value)}
-              className="flex-1 border rounded-lg px-4 py-2 focus:ring-2 focus:ring-teal-500"
-            >
-              <option value="">-- 选择已有规则 --</option>
-              <option value="1">标准出库单模板</option>
-              <option value="2">矩阵转置模板</option>
-            </select>
-            <a
-              href="/rules"
-              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 inline-block text-center"
-            >
-              新建规则
-            </a>
+            )}
+            
             <button
               onClick={handleUpload}
               disabled={!file || parsing}
-              className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+              className={`w-full py-3 px-6 rounded-lg font-semibold text-white transition-all
+                ${!file || parsing 
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-teal-600 hover:bg-teal-700 hover:shadow-lg'
+                }`}
             >
-              {parsing ? '解析中...' : 'AI 解析'}
+              {parsing ? `解析中... ${progress}%` : '开始解析'}
             </button>
-          </div>
 
-          {parsing && (
-            <div className="mt-4">
-              <div className="w-full bg-gray-200 rounded-full h-2">
+            {parsing && (
+              <div className="w-full bg-gray-200 rounded-full h-3">
                 <div 
-                  className="bg-teal-600 h-2 rounded-full transition-all duration-300"
+                  className="bg-teal-600 h-3 rounded-full transition-all duration-300"
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <div className="text-sm text-gray-600 mt-2 text-center">
-                正在解析文件... {progress}%
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* 数据预览 */}
         {data.length > 0 && (
           <div className="bg-white rounded-xl shadow-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">3. 预览与编辑</h2>
+            <h2 className="text-xl font-semibold mb-4">2. 解析结果</h2>
+            
+            {errors.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                <h3 className="font-semibold text-red-800 mb-2">发现 {errors.length} 个错误:</h3>
+                <ul className="space-y-1">
+                  {errors.map((err, i) => (
+                    <li key={i} className="text-red-700 text-sm">
+                      第{err.rowIndex}行：{err.field} - {err.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               <table className="w-full border">
                 <thead className="bg-gray-50">
@@ -165,10 +162,10 @@ export default function PreviewPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.map((row: any, index) => (
+                  {data.map((row, index) => (
                     <tr key={index} className="hover:bg-gray-50">
-                      <td className="border p-2">{row.externalCode}</td>
-                      <td className="border p-2">{row.storeName}</td>
+                      <td className="border p-2">{row.externalCode || '-'}</td>
+                      <td className="border p-2">{row.storeName || '-'}</td>
                       <td className="border p-2">{row.skuCode}</td>
                       <td className="border p-2">{row.skuName}</td>
                       <td className="border p-2">{row.quantity}</td>
@@ -177,14 +174,10 @@ export default function PreviewPage() {
                 </tbody>
               </table>
             </div>
-            <div className="flex gap-3 mt-4">
-              <button className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
-                提交下单
-              </button>
-              <button className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                导出 Excel
-              </button>
-            </div>
+            
+            <p className="mt-4 text-center text-gray-600">
+              共 {data.length} 条数据
+            </p>
           </div>
         )}
       </div>
