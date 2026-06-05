@@ -300,7 +300,7 @@ function simulateAIGenerateRule(fileName: string, buffer: ArrayBuffer) {
 function analyzeExcel(buffer: ArrayBuffer) {
   const workbook = XLSX.read(buffer, { type: 'array' })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  const data = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+  const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
   
   return {
     sheetCount: workbook.SheetNames.length,
