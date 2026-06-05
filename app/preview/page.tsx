@@ -29,28 +29,38 @@ export default function PreviewPage() {
 
     // 模拟进度
     const progressInterval = setInterval(() => {
-      setProgress(prev => Math.min(prev + 10, 90))
-    }, 300)
+      setProgress(prev => Math.min(prev + 10, 80))
+    }, 200)
 
     try {
-      // 这里后续会实现真实的上传和解析逻辑
       const formData = new FormData()
       formData.append('file', file)
       if (selectedRule) formData.append('ruleId', selectedRule)
 
-      // TODO: 调用实际 API
-      // const res = await fetch('/api/parse', { method: 'POST', body: formData })
+      const res = await fetch('/api/parse', { 
+        method: 'POST', 
+        body: formData 
+      })
       
-      // 模拟解析完成
-      setTimeout(() => {
-        clearInterval(progressInterval)
-        setProgress(100)
-        setParsing(false)
-        setData([
-          { externalCode: 'TEST001', storeName: '测试门店', skuCode: 'SKU001', skuName: '测试商品', quantity: 10 },
-        ])
-        toast.success('解析成功')
-      }, 2000)
+      const result = await res.json()
+      
+      clearInterval(progressInterval)
+      setProgress(100)
+      setParsing(false)
+      
+      if (!res.ok) {
+        toast.error(result.error || '解析失败')
+        return
+      }
+      
+      setData(result.data || [])
+      toast.success(`解析成功：有效${result.validCount}条，错误${result.errors?.length || 0}条`)
+      
+      if (result.errors?.length > 0) {
+        result.errors.forEach((err: any) => {
+          toast.error(`第${err.rowIndex}行：${err.message}`)
+        })
+      }
     } catch (error) {
       clearInterval(progressInterval)
       setParsing(false)

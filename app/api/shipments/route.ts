@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
     const pageSize = parseInt(searchParams.get('pageSize') || '10')
     const keyword = searchParams.get('keyword') || ''
     
-    const prisma = await import('@/lib/prisma').then(m => m.prisma)
+    const { prisma } = await import('@/lib/prisma')
     
     // 构建查询条件
     const where: any = {}
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    const prisma = await import('@/lib/prisma').then(m => m.prisma)
+    const { prisma } = await import('@/lib/prisma')
     
     // 批量创建运单
     const created: any[] = []
