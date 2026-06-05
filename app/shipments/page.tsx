@@ -10,6 +10,7 @@ export default function ShipmentsPage() {
   const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+  const [deleting, setDeleting] = useState<string | null>(null)
 
   useEffect(() => {
     fetchShipments()
@@ -29,6 +30,30 @@ export default function ShipmentsPage() {
       console.error('Failed to fetch shipments:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('确定要删除这个运单吗？')) return
+    
+    setDeleting(id)
+    try {
+      const res = await fetch('/api/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      })
+      
+      if (res.ok) {
+        fetchShipments()
+      } else {
+        alert('删除失败')
+      }
+    } catch (error) {
+      console.error('Delete error:', error)
+      alert('删除失败')
+    } finally {
+      setDeleting(null)
     }
   }
 
@@ -85,6 +110,7 @@ export default function ShipmentsPage() {
                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">SKU 数量</th>
                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">状态</th>
                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">提交时间</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -110,6 +136,15 @@ export default function ShipmentsPage() {
                       </td>
                       <td className="py-3 px-4 text-sm text-gray-600">
                         {new Date(shipment.submittedAt || shipment.createdAt).toLocaleDateString('zh-CN')}
+                      </td>
+                      <td className="py-3 px-4 text-sm">
+                        <button
+                          onClick={() => handleDelete(shipment.id)}
+                          disabled={deleting === shipment.id}
+                          className="px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 disabled:opacity-50"
+                        >
+                          {deleting === shipment.id ? '删除中...' : '删除'}
+                        </button>
                       </td>
                     </tr>
                   ))}
