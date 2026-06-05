@@ -256,26 +256,28 @@ export default function ImportPage() {
   }
 
   const isButtonDisabled = !file || (!selectedRule && rules.length > 0) || parsing
-  const buttonClass = isButtonDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-700 hover:shadow-lg transform hover:-translate-y-0.5'
+  const buttonClass = isButtonDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-700'
   
   const smartButtonDisabled = !file || parsing
-  const smartButtonClass = smartButtonDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg transform hover:-translate-y-0.5'
+  const smartButtonClass = smartButtonDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
   
   const submitDisabled = submitting || parsedData.some(row => row.errors && row.errors.length > 0)
   const submitClass = submitDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-700'
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-cyan-50 to-teal-50">
+    <div className="min-h-screen">
       <Toaster position="top-center" richColors />
       
       <div className="max-w-7xl mx-auto px-6 py-8">
         <header className="mb-8">
-          <Link href="/" className="text-teal-600 hover:underline text-sm">← 返回首页</Link>
+          <Link href="/" className="text-teal-600 hover:underline text-sm">
+            返回首页
+          </Link>
           <h1 className="text-3xl font-bold text-teal-600 mt-2">文件导入</h1>
           <p className="text-gray-600 mt-1">上传 Excel/Word/PDF 文件，使用已配置的规则进行智能解析</p>
         </header>
 
-        <div className="bg-white rounded-xl shadow-lg p-8 mb-6 border border-cyan-100">
+        <div className="bg-white rounded-xl shadow-lg p-8 mb-6 border border-gray-200">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">1. 上传文件</h2>
           
           <div className="border-2 border-dashed border-teal-300 rounded-xl p-12 text-center hover:border-teal-500 transition-colors bg-teal-50">
@@ -300,10 +302,12 @@ export default function ImportPage() {
           </div>
 
           {file && (
-            <div className="mt-6 bg-gradient-to-r from-teal-50 to-cyan-50 rounded-lg p-4 border border-teal-200">
+            <div className="mt-6 bg-teal-50 rounded-lg p-4 border border-teal-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-gray-800">📄 {file.name}</p>
+                  <p className="font-semibold text-gray-800">
+                    {file.name}
+                  </p>
                   <p className="text-sm text-gray-600">
                     大小：{(file.size / 1024).toFixed(2)} KB
                   </p>
@@ -334,13 +338,13 @@ export default function ImportPage() {
           )}
         </div>
 
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border border-cyan-100">
+        <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border border-gray-200">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">2. 选择解析规则</h2>
           
           {rules.length === 0 ? (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
               <p className="text-yellow-800 mb-4">
-                ⚠️ 还没有可用的解析规则
+                还没有可用的解析规则
               </p>
               <div className="flex gap-4">
                 <Link
@@ -360,10 +364,10 @@ export default function ImportPage() {
                 <div
                   key={rule.id}
                   onClick={() => setSelectedRule(rule.id)}
-                  className={selectedRule === rule.id ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200' : 'border-gray-200 hover:border-teal-300' + ' border rounded-lg p-4 cursor-pointer transition-all'}
+                  className={selectedRule === rule.id ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200' : 'border-gray-200 hover:border-teal-300 border rounded-lg p-4 cursor-pointer transition-all'}
                 >
                   <div className="flex items-center mb-2">
-                    <div className={selectedRule === rule.id ? 'border-teal-600 bg-teal-600' : 'border-gray-300' + ' w-4 h-4 rounded-full border-2 mr-2'} />
+                    <div className={selectedRule === rule.id ? 'border-teal-600 bg-teal-600' : 'border-gray-300 w-4 h-4 rounded-full border-2 mr-2'} />
                     <span className="font-semibold text-gray-800">{rule.name}</span>
                   </div>
                   <p className="text-sm text-gray-600 truncate">
@@ -380,7 +384,7 @@ export default function ImportPage() {
           )}
         </div>
 
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border border-cyan-100">
+        <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border border-gray-200">
           <div className="flex gap-4">
             <button
               onClick={() => handleUpload(false)}
@@ -414,14 +418,14 @@ export default function ImportPage() {
                   解析中...
                 </span>
               ) : (
-                '🤖 智能解析'
+                '智能解析'
               )}
             </button>
           </div>
         </div>
 
         {showPreview && parsedData.length > 0 && (
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-cyan-100">
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-gray-800">
                 3. 数据预览与编辑
@@ -431,13 +435,13 @@ export default function ImportPage() {
                   onClick={handleAddRow}
                   className="px-4 py-2 border border-teal-600 text-teal-600 rounded-lg hover:bg-teal-50 transition-colors"
                 >
-                  + 新增空行
+                  新增空行
                 </button>
                 <button
                   onClick={handleExportExcel}
                   className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
-                  📊 导出Excel
+                  导出Excel
                 </button>
               </div>
             </div>
@@ -445,7 +449,6 @@ export default function ImportPage() {
             {errors.length > 0 && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
                 <h3 className="font-semibold text-red-800 mb-3 flex items-center">
-                  <span className="mr-2">⚠️</span>
                   发现 {errors.length} 个问题（需修正后才能提交）
                 </h3>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
@@ -582,7 +585,7 @@ export default function ImportPage() {
                             className="text-red-600 hover:text-red-700 px-2 py-1 rounded hover:bg-red-100"
                             title="删除行"
                           >
-                            🗑️
+                            删除
                           </button>
                         </td>
                       </tr>
@@ -623,7 +626,7 @@ export default function ImportPage() {
                       提交中...
                     </span>
                   ) : (
-                    '✅ 提交下单'
+                    '提交下单'
                   )}
                 </button>
               </div>
