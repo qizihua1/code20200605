@@ -31,7 +31,7 @@ function identifyColumns(headers: string[]) {
 }
 
 // 智能识别多 Sheet 文件
-function extractFromAllSheets(workbook: XLSX.Workbook) {
+function extractFromAllSheets(workbook: XLSX.WorkBook) {
   const allRows: any[] = []
   
   for (const sheetName of workbook.SheetNames) {
