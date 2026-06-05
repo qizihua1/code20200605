@@ -346,7 +346,7 @@ export async function POST(request: NextRequest) {
         where: { id: ruleId }
       })
       
-      if (rule && (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+      if (rule && (fileName.endsWith('.xlsx') || fileName.endsWith('.xls'))) {
         const workbook = XLSX.read(bytes, { type: 'array' })
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
         const data = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][]
