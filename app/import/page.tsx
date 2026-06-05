@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Toaster, toast } from 'sonner'
 
@@ -21,9 +21,9 @@ export default function ImportPage() {
   const [showPreview, setShowPreview] = useState(false)
 
   // 加载规则列表
-  useState(() => {
+  useEffect(() => {
     loadRules()
-  })
+  }, [])
 
   const loadRules = async () => {
     try {
