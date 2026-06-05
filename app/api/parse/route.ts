@@ -12,34 +12,79 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 
 // 常见的表头关键词映射
 const KEYWORD_MAPPINGS = {
-  skuCode: ['编码', '编号', 'SKU', '货号', '商品编码', 'SKU编码', '物品编码'],
-  skuName: ['名称', '品名', '商品名称', 'SKU名称', '物品名称', '货品名称'],
-  quantity: ['数量', '件数', '发货数量', '数量(件)', '数', 'Qty'],
-  externalCode: ['配送单号', '订单号', '单号', '订单编号', '外部编号'],
-  storeName: ['门店', '收货门店', '店铺', '门店名称', '收货机构'],
+  skuCode: ['编码', '编号', 'SKU', '货号', '商品编码', 'SKU编码', '物品编码', '条码', '外部商品编码'],
+  skuName: ['名称', '品名', '商品名称', 'SKU名称', '物品名称', '货品名称', 'SKU'],
+  quantity: ['数量', '件数', '发货数量', '数量(件)', '数', 'Qty', '出库数量', '应发数量', '发货数量*', '在库数量的总和'],
+  externalCode: ['配送单号', '订单号', '单号', '订单编号', '外部编号', '配送汇总单号', '物品行号'],
+  storeName: ['门店', '收货门店', '店铺', '门店名称', '收货机构', '仓库名称'],
   recipientName: ['收货人', '收件人', '姓名'],
   recipientPhone: ['电话', '手机号', '联系电话', '手机'],
   recipientAddress: ['地址', '收货地址', '配送地址'],
-  specification: ['规格', '规格型号', '型号'],
+  specification: ['规格', '规格型号', '型号', '规格'],
   remarks: ['备注', '说明'],
 }
 
 // 智能查找表头行
 function findHeaderRow(data: any[][]) {
-  for (let i = 0; i < Math.min(10, data.length); i++) {
+  // 查找包含最多关键词的行
+  let maxScore = 0
+  let bestRow = 0
+  
+  for (let i = 0; i < Math.min(15, data.length); i++) {
     const row = data[i]
-    const hasRelevantKeywords = row.some((cell) => {
+    let score = 0
+    
+    // 统计这一行包含多少关键词
+    for (const cell of row) {
       const cellStr = String(cell || '').trim()
       const allKeywords = Object.values(KEYWORD_MAPPINGS).flat()
-      return allKeywords.some(keyword => 
-        cellStr.includes(keyword)
-      )
-    })
-    if (hasRelevantKeywords) {
-      return i
+      for (const keyword of allKeywords) {
+        if (cellStr.includes(keyword)) {
+          score++
+          break // 每个单元格只算一次
+        }
+      }
+    }
+    
+    // 检查这一行是不是可能的标题行
+    const isMostlyText = row.filter(cell => 
+      typeof cell === 'string' && cell.length > 2
+    ).length > row.length / 2
+    
+    // 检查是否包含序号列，这通常意味着是表头
+    const hasIndexColumn = row.some(cell => 
+      String(cell).includes('序号') || String(cell) === '序号'
+    )
+    
+    if (hasIndexColumn) {
+      score += 5 // 给序号列加权重
+    }
+    
+    if (isMostlyText) {
+      score += 2
+    }
+    
+    if (score > maxScore) {
+      maxScore = score
+      bestRow = i
     }
   }
-  return 0 // 默认第一行
+  
+  // 如果找到的分数不够高，返回第一个有意义的行
+  if (maxScore < 2) {
+    // 尝试跳过说明性的行，找有数据的行
+    for (let i = 0; i < Math.min(10, data.length); i++) {
+      const row = data[i]
+      const hasNumericCell = row.some(cell => 
+        typeof cell === 'number' || !isNaN(parseInt(String(cell)))
+      )
+      if (hasNumericCell && i > 0) {
+        return i - 1 // 数据行的前一行可能是表头
+      }
+    }
+  }
+  
+  return bestRow
 }
 
 // 匹配字段到列
@@ -50,11 +95,19 @@ function mapColumnsToFields(headerRow: any[]) {
     const cellStr = String(cell || '').trim()
     
     for (const [field, keywords] of Object.entries(KEYWORD_MAPPINGS)) {
-      if (keywords.some(keyword => 
+      // 精确匹配或包含匹配
+      const exactMatch = keywords.some(keyword => cellStr === keyword)
+      const containsMatch = keywords.some(keyword => 
         cellStr.includes(keyword) || 
         cellStr.toLowerCase().includes(keyword.toLowerCase())
-      )) {
-        mapping[field] = idx
+      )
+      
+      // 精确匹配优先
+      if (exactMatch || containsMatch) {
+        // 如果已经有映射了，只在精确匹配时才覆盖
+        if (!mapping[field] || exactMatch) {
+          mapping[field] = idx
+        }
         break
       }
     }
@@ -77,6 +130,23 @@ function smartParseExcel(buffer: ArrayBuffer) {
     const headerRowIdx = findHeaderRow(data)
     const headerRow = data[headerRowIdx]
     const fieldMapping = mapColumnsToFields(headerRow)
+    
+    // 尝试提取门店信息（前几行可能包含）
+    let sheetStoreName = ''
+    for (let i = 0; i < Math.min(headerRowIdx + 2, data.length); i++) {
+      const row = data[i]
+      for (const cell of row) {
+        const cellStr = String(cell || '')
+        if (cellStr.includes('门店') || cellStr.includes('店）')) {
+          const match = cellStr.match(/（([^）]+)店）/) || cellStr.match(/([^\s]+店)/)
+          if (match) {
+            sheetStoreName = match[1] || match[0]
+            break
+          }
+        }
+      }
+      if (sheetStoreName) break
+    }
     
     const hasKeyFields = fieldMapping.skuCode !== undefined || fieldMapping.skuName !== undefined
     
@@ -101,9 +171,56 @@ function smartParseExcel(buffer: ArrayBuffer) {
         const value = row[colIdx]
         if (value !== undefined && value !== null) {
           if (field === 'quantity') {
-            item[field] = parseInt(String(value)) || 0
+            let qty = 0
+            if (value !== null && value !== undefined && value !== '') {
+              qty = parseInt(String(value)) || 0
+            }
+            if (qty === 0) {
+              for (let j = 0; j < row.length; j++) {
+                const cell = row[j]
+                const cellNum = parseInt(String(cell))
+                if (cellNum > 0 && cellNum < 10000) {
+                  qty = cellNum
+                  break
+                }
+              }
+            }
+            item[field] = qty
           } else {
-            item[field] = String(value).trim()
+            item[field] = String(value || '').trim()
+          }
+        }
+      }
+      
+      // 特殊处理欢乐牧场这类：SKU名称在第2列（索引1）
+      // 检查是否有明显的货主名称在SKU位置
+      if (item.skuName && ['欢乐牧场', '尹三顺', '寨寨', '黎明屯'].includes(item.skuName)) {
+        const skuNameCol = 2 // 欢乐牧场的SKU名称在第3列（索引2）
+        if (row[skuNameCol]) {
+          const candidate = String(row[skuNameCol] || '')
+          if (candidate.length > 3 && candidate.length < 100) {
+            item.skuName = candidate
+          }
+        }
+      }
+      
+      // 备用策略：如果没有找到SKU名称，尝试找合理的文本列
+      if (!item.skuName || item.skuName.length < 3) {
+        for (let j = 0; j < row.length; j++) {
+          const val = String(row[j] || '')
+          if (val.length > 3 && val.length < 100 && !/^\d+$/.test(val) && !val.includes('仓库') && !val.includes('正常') && !val.includes('正品')) {
+            // 检查是否已经被用作其他字段了
+            let isUsed = false
+            for (const [field, colIdx] of Object.entries(fieldMapping)) {
+              if (colIdx === j && field !== 'specification') {
+                isUsed = true
+                break
+              }
+            }
+            if (!isUsed) {
+              item.skuName = val
+              break
+            }
           }
         }
       }
@@ -111,6 +228,8 @@ function smartParseExcel(buffer: ArrayBuffer) {
       if (item.skuCode || item.skuName) {
         if (workbook.SheetNames.length > 1) {
           item.storeName = item.storeName || sheetName
+        } else if (sheetStoreName) {
+          item.storeName = item.storeName || sheetStoreName
         }
         parsedData.push(item)
       }
