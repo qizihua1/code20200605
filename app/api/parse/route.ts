@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import * as XLSX from 'xlsx'
-import * as pdfjsLib from 'pdfjs-dist'
 import mammoth from 'mammoth'
+import pdfParse from 'pdf-parse'
 
 const prisma = new PrismaClient()
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
 
 // 常见的表头关键词映射
 const KEYWORD_MAPPINGS = {
@@ -188,144 +186,93 @@ function parseExcelFromRow(data: any[][], headerRowIdx: number, fieldMapping: Re
 async function smartParsePDF(buffer: ArrayBuffer) {
   const parsedData: any[] = []
   try {
-    console.log('=== Starting PDF parsing ===')
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise
-    console.log('PDF loaded, pages:', pdf.numPages)
+    console.log('=== Starting PDF parsing with pdf-parse ===')
     
-    let allText = ''
+    // 将ArrayBuffer转换为Buffer
+    const bufferObj = Buffer.from(buffer)
+    const data = await pdfParse(bufferObj)
     
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      const page = await pdf.getPage(pageNum)
-      const textContent = await page.getTextContent()
+    console.log('PDF parsed successfully')
+    console.log('Number of pages:', data.numpages)
+    console.log('Text length:', data.text.length)
+    
+    const allText = data.text
+    const lines = allText.split('\n').filter(line => line.trim())
+    console.log('Number of lines:', lines.length)
+    
+    // 从文本中尝试提取表格数据
+    // 方案1：查找看起来像表格行的内容
+    const potentialTableLines: string[] = []
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
       
-      // 带位置信息提取文本
-      const items = textContent.items as any[]
-      console.log(`Page ${pageNum} has ${items.length} text items`)
+      // 跳过太短的行和包含关键汇总词的行
+      if (line.length < 5) continue
+      if (line.includes('合计') || line.includes('总计') || 
+          line.includes('金额') || line.includes('配送')) continue
       
-      // 收集所有文本项，带位置信息
-      const textItems = items.map((item: any) => ({
-        str: item.str,
-        x: item.transform[4],
-        y: item.transform[5],
-        width: item.width,
-        height: item.height
-      }))
-      
-      // 按Y坐标排序（从上到下）
-      textItems.sort((a: any, b: any) => b.y - a.y)
-      
-      // 尝试识别表格：按Y坐标分组为行，按X坐标排序为列
-      const rows: any[][] = []
-      let currentRow: any[] = []
-      let lastY = -1
-      const tolerance = 5
-      
-      for (const item of textItems) {
-        if (item.str.trim()) {
-          if (lastY === -1 || Math.abs(item.y - lastY) < tolerance) {
-            currentRow.push(item)
-          } else {
-            if (currentRow.length > 0) {
-              // 按X坐标排序
-              currentRow.sort((a: any, b: any) => a.x - b.x)
-              rows.push(currentRow)
-            }
-            currentRow = [item]
-          }
-          lastY = item.y
-        }
+      // 查找包含数字的行（可能是表格行）
+      const hasNumber = /\d+/.test(line)
+      if (hasNumber) {
+        potentialTableLines.push(line)
       }
-      if (currentRow.length > 0) {
-        currentRow.sort((a: any, b: any) => a.x - b.x)
-        rows.push(currentRow)
-      }
-      
-      console.log(`Page ${pageNum} identified ${rows.length} rows`)
-      
-      // 尝试从行中提取数据
-      if (rows.length > 0) {
-        // 尝试找到表头行
-        let headerRowIndex = 0
-        for (let i = 0; i < Math.min(10, rows.length); i++) {
-          const rowText = rows[i].map((item: any) => item.str).join(' ').toLowerCase()
-          if (rowText.includes('编码') || rowText.includes('名称') || 
-              rowText.includes('数量') || rowText.includes('商品')) {
-            headerRowIndex = i
+    }
+    
+    console.log('Found', potentialTableLines.length, 'potential table lines')
+    
+    // 从这些行中提取数据
+    for (const line of potentialTableLines) {
+      // 尝试提取数量
+      let quantity = 1
+      const qtyMatches = line.match(/\b(\d{1,4})\b/g)
+      if (qtyMatches && qtyMatches.length > 0) {
+        for (const qtyMatch of qtyMatches) {
+          const num = parseInt(qtyMatch)
+          if (num > 0 && num < 10000) {
+            quantity = num
             break
           }
         }
-        
-        // 从表头行之后开始提取数据
-        for (let i = headerRowIndex + 1; i < rows.length; i++) {
-          const row = rows[i]
-          if (row.length < 2) continue
-          
-          const rowStr = row.map((item: any) => item.str).join(' ')
-          
-          // 跳过合计行、空行
-          if (rowStr.includes('合计') || rowStr.includes('总计') || rowStr.length < 3) {
-            continue
-          }
-          
-          // 尝试提取数量
-          let quantity = 1
-          for (const cell of row) {
-            const qtyMatch = cell.str.match(/^(\d+)$/)
-            if (qtyMatch && parseInt(qtyMatch[1]) > 0) {
-              quantity = parseInt(qtyMatch[1])
-              break
-            }
-          }
-          
-          // 尝试提取SKU编码和名称
-          const cellTexts = row.map((item: any) => item.str)
-          let skuCode = ''
-          let skuName = ''
-          
-          for (let j = 0; j < cellTexts.length; j++) {
-            const text = cellTexts[j]
-            // 识别编码（包含字母数字组合的字符串）
-            if (!skuCode && /[A-Za-z0-9\-_]+/.test(text) && text.length > 2) {
-              skuCode = text.trim()
-            } else if (text.trim() && !/^\d+$/.test(text)) {
-              // 名称部分（不是纯数字的）
-              skuName += (skuName ? ' ' : '') + text.trim()
-            }
-          }
-          
-          if (skuName && skuName.length > 1) {
-            parsedData.push({
-              skuCode: skuCode || '',
-              skuName: skuName.substring(0, 100),
-              quantity: quantity
-            })
-          }
-        }
       }
       
-      // 保存页面文本，备用方案
-      allText += textItems.map((item: any) => item.str).join(' ') + '\n'
+      // 尝试提取SKU编码
+      let skuCode = ''
+      const codeMatch = line.match(/([A-Za-z0-9\-_]{4,20})/)
+      if (codeMatch) {
+        skuCode = codeMatch[1]
+      }
+      
+      // 提取SKU名称（移除编码和数量后的剩余文本）
+      let skuName = line
+      if (skuCode) {
+        skuName = skuName.replace(skuCode, '')
+      }
+      // 移除所有数字
+      skuName = skuName.replace(/\d+/g, '').trim()
+      // 移除多余的空格
+      skuName = skuName.replace(/\s+/g, ' ')
+      
+      if (skuName && skuName.length > 2) {
+        parsedData.push({
+          skuCode: skuCode,
+          skuName: skuName.substring(0, 100),
+          quantity: quantity
+        })
+      }
     }
     
-    // 如果表格解析没找到数据，尝试备用方案
-    if (parsedData.length === 0 && allText.trim()) {
-      console.log('=== Using backup parsing method ===')
-      const lines = allText.split('\n').filter(line => line.trim())
-      
+    // 如果还没有找到数据，尝试更通用的方法
+    if (parsedData.length === 0) {
+      console.log('Using fallback parsing method')
       for (const line of lines) {
         const trimmed = line.trim()
-        if (trimmed.length < 5) continue
-        if (trimmed.includes('合计') || trimmed.includes('总计')) continue
-        
-        const quantityMatch = trimmed.match(/\b(\d{1,4})\b/)
-        const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1
-        
-        const skuCodeMatch = trimmed.match(/([A-Za-z0-9\-_]{4,})/)
-        const skuCode = skuCodeMatch ? skuCodeMatch[1] : ''
-        
-        if (trimmed.length > 10 || skuCode) {
+        if (trimmed.length > 10 && !trimmed.includes('合计') && !trimmed.includes('总计')) {
+          const quantityMatch = trimmed.match(/\b(\d{1,4})\b/)
+          const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1
+          
           parsedData.push({
-            skuCode: skuCode,
+            skuCode: '',
             skuName: trimmed.substring(0, 100),
             quantity: quantity
           })
@@ -336,7 +283,7 @@ async function smartParsePDF(buffer: ArrayBuffer) {
     console.log('=== PDF parsing complete, found', parsedData.length, 'items ===')
     
     if (parsedData.length === 0 && allText.trim()) {
-      // 实在解析不出，添加至少一个占位项
+      // 实在解析不出，添加一个占位项
       parsedData.push({
         skuCode: 'PDF-PARSED',
         skuName: allText.substring(0, 50),
