@@ -9,7 +9,7 @@ export default function PreviewPage() {
   const [file, setFile] = useState<File | null>(null)
   const [parsing, setParsing] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [data, setData] = useState([])
+  const [data, setData] = useState<any[]>([])
   const [selectedRule, setSelectedRule] = useState('')
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
