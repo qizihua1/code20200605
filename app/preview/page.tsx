@@ -21,35 +21,39 @@ export default function PreviewPage() {
   const handleUpload = async () => {
     if (!file) {
       toast.error('请选择文件')
+      console.error('No file selected')
       return
     }
 
+    console.log('Starting upload:', file.name, file.size, file.type)
     setParsing(true)
-    setProgress(0)
-
-    // 模拟进度
-    const progressInterval = setInterval(() => {
-      setProgress(prev => Math.min(prev + 10, 80))
-    }, 200)
+    setProgress(10)
 
     try {
       const formData = new FormData()
       formData.append('file', file)
       if (selectedRule) formData.append('ruleId', selectedRule)
 
+      console.log('Sending request to /api/parse...')
+      setProgress(30)
+
       const res = await fetch('/api/parse', { 
         method: 'POST', 
         body: formData 
       })
       
-      const result = await res.json()
+      console.log('Response status:', res.status, res.statusText)
+      setProgress(60)
       
-      clearInterval(progressInterval)
+      const result = await res.json()
+      console.log('Response data:', result)
+      
       setProgress(100)
-      setParsing(false)
       
       if (!res.ok) {
-        toast.error(result.error || '解析失败')
+        const errorMsg = result.error || result.hint || '解析失败'
+        toast.error(errorMsg)
+        setParsing(false)
         return
       }
       
@@ -61,10 +65,12 @@ export default function PreviewPage() {
           toast.error(`第${err.rowIndex}行：${err.message}`)
         })
       }
-    } catch (error) {
-      clearInterval(progressInterval)
+      
       setParsing(false)
-      toast.error('解析失败：' + (error as Error).message)
+    } catch (error: any) {
+      console.error('Upload error:', error)
+      setParsing(false)
+      toast.error('解析失败：' + (error.message || '网络错误'))
     }
   }
 

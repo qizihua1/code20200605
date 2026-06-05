@@ -4,11 +4,16 @@ import * as XLSX from 'xlsx'
 // Note: File size limit is configured in next.config.js
 
 export async function POST(request: NextRequest) {
+  console.log('Parse API called')
+  
   try {
     const formData = await request.formData()
     const file = formData.get('file') as File | null
 
+    console.log('File received:', file ? { name: file.name, size: file.size, type: file.type } : 'No file')
+
     if (!file) {
+      console.error('No file in request')
       return NextResponse.json(
         { error: '请上传文件' },
         { status: 400 }
@@ -18,15 +23,19 @@ export async function POST(request: NextRequest) {
     // 验证文件格式
     const fileName = file.name.toLowerCase()
     if (!(fileName.endsWith('.xlsx') || fileName.endsWith('.xls'))) {
+      console.log('Unsupported file type:', file.type)
       return NextResponse.json({
-        error: 'PDF/Word 文件解析功能开发中，请先上传 Excel 文件',
-        hint: '当前版本仅支持 Excel 文件格式'
+        error: '暂不支持此文件格式',
+        hint: `当前仅支持 Excel 文件 (.xlsx/.xls)，您上传的是：${file.type || '未知类型'}`
       }, { status: 400 })
     }
 
     // 读取文件内容
     const bytes = await file.arrayBuffer()
+    console.log('File bytes read:', bytes.byteLength)
+    
     const workbook = XLSX.read(Buffer.from(bytes), { type: 'buffer' })
+    console.log('Workbook sheets:', workbook.SheetNames)
     
     // 读取第一个 Sheet
     const sheetName = workbook.SheetNames[0]
@@ -113,9 +122,13 @@ export async function POST(request: NextRequest) {
     })
     
   } catch (error: any) {
-    console.error('Parse error:', error)
+    console.error('Parse error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    })
     return NextResponse.json(
-      { error: '解析失败：' + (error.message || '未知错误') },
+      { error: '解析失败：' + (error.message || '未知错误'), details: error.stack },
       { status: 500 }
     )
   }
