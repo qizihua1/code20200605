@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ParsingRule {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  format        String   // 'excel' | 'word' | 'pdf'
+  structure     Json     // StructureConfig
+  fieldMappings Json     // FieldMapping[]
+  aggregations  Json?    // AggregationRule[]
+  transformations Json?  // TransformRule[]
+  extractions   Json?    // ExtractionRule[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  createdBy     String?
+  
+  shipments     Shipment[]
+
+  @@map("parsing_rules")
+}
+
+model Shipment {
+  id               String    @id @default(cuid())
+  externalCode     String?   // 外部编码 (可选)
+  
+  // A 组 - 门店模式
+  storeName        String?
+  
+  // B 组 - 收件人模式
+  recipientName    String?
+  recipientPhone   String?
+  recipientAddress String?
+  
+  // 元信息
+  status           String    @default("pending") // pending | submitted | failed
+  submittedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  
+  items            ShipmentItem[]
+  parsingRule      ParsingRule? @relation(fields: [parsingRuleId], references: [id])
+  parsingRuleId    String?
+  
+  @@index([externalCode])
+  @@index([recipientName])
+  @@index([submittedAt])
+  @@map("shipments")
+}
+
+model ShipmentItem {
+  id            String    @id @default(cuid())
+  shipment      Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  shipmentId    String
+  
+  skuCode       String
+  skuName       String
+  quantity      Int
+  specification String?
+  remarks       String?
+  
+  @@index([shipmentId])
+  @@map("shipment_items")
+}
