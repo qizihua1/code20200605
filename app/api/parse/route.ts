@@ -188,44 +188,169 @@ function parseExcelFromRow(data: any[][], headerRowIdx: number, fieldMapping: Re
 async function smartParsePDF(buffer: ArrayBuffer) {
   const parsedData: any[] = []
   try {
+    console.log('=== Starting PDF parsing ===')
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise
-    let fullText = ''
+    console.log('PDF loaded, pages:', pdf.numPages)
     
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i)
+    let allText = ''
+    
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum)
       const textContent = await page.getTextContent()
-      const pageText = (textContent.items as any[]).map(item => item.str).join(' ')
-      fullText += pageText + '\n'
+      
+      // 带位置信息提取文本
+      const items = textContent.items as any[]
+      console.log(`Page ${pageNum} has ${items.length} text items`)
+      
+      // 收集所有文本项，带位置信息
+      const textItems = items.map((item: any) => ({
+        str: item.str,
+        x: item.transform[4],
+        y: item.transform[5],
+        width: item.width,
+        height: item.height
+      }))
+      
+      // 按Y坐标排序（从上到下）
+      textItems.sort((a: any, b: any) => b.y - a.y)
+      
+      // 尝试识别表格：按Y坐标分组为行，按X坐标排序为列
+      const rows: any[][] = []
+      let currentRow: any[] = []
+      let lastY = -1
+      const tolerance = 5
+      
+      for (const item of textItems) {
+        if (item.str.trim()) {
+          if (lastY === -1 || Math.abs(item.y - lastY) < tolerance) {
+            currentRow.push(item)
+          } else {
+            if (currentRow.length > 0) {
+              // 按X坐标排序
+              currentRow.sort((a: any, b: any) => a.x - b.x)
+              rows.push(currentRow)
+            }
+            currentRow = [item]
+          }
+          lastY = item.y
+        }
+      }
+      if (currentRow.length > 0) {
+        currentRow.sort((a: any, b: any) => a.x - b.x)
+        rows.push(currentRow)
+      }
+      
+      console.log(`Page ${pageNum} identified ${rows.length} rows`)
+      
+      // 尝试从行中提取数据
+      if (rows.length > 0) {
+        // 尝试找到表头行
+        let headerRowIndex = 0
+        for (let i = 0; i < Math.min(10, rows.length); i++) {
+          const rowText = rows[i].map((item: any) => item.str).join(' ').toLowerCase()
+          if (rowText.includes('编码') || rowText.includes('名称') || 
+              rowText.includes('数量') || rowText.includes('商品')) {
+            headerRowIndex = i
+            break
+          }
+        }
+        
+        // 从表头行之后开始提取数据
+        for (let i = headerRowIndex + 1; i < rows.length; i++) {
+          const row = rows[i]
+          if (row.length < 2) continue
+          
+          const rowStr = row.map((item: any) => item.str).join(' ')
+          
+          // 跳过合计行、空行
+          if (rowStr.includes('合计') || rowStr.includes('总计') || rowStr.length < 3) {
+            continue
+          }
+          
+          // 尝试提取数量
+          let quantity = 1
+          for (const cell of row) {
+            const qtyMatch = cell.str.match(/^(\d+)$/)
+            if (qtyMatch && parseInt(qtyMatch[1]) > 0) {
+              quantity = parseInt(qtyMatch[1])
+              break
+            }
+          }
+          
+          // 尝试提取SKU编码和名称
+          const cellTexts = row.map((item: any) => item.str)
+          let skuCode = ''
+          let skuName = ''
+          
+          for (let j = 0; j < cellTexts.length; j++) {
+            const text = cellTexts[j]
+            // 识别编码（包含字母数字组合的字符串）
+            if (!skuCode && /[A-Za-z0-9\-_]+/.test(text) && text.length > 2) {
+              skuCode = text.trim()
+            } else if (text.trim() && !/^\d+$/.test(text)) {
+              // 名称部分（不是纯数字的）
+              skuName += (skuName ? ' ' : '') + text.trim()
+            }
+          }
+          
+          if (skuName && skuName.length > 1) {
+            parsedData.push({
+              skuCode: skuCode || '',
+              skuName: skuName.substring(0, 100),
+              quantity: quantity
+            })
+          }
+        }
+      }
+      
+      // 保存页面文本，备用方案
+      allText += textItems.map((item: any) => item.str).join(' ') + '\n'
     }
     
-    const lines = fullText.split('\n').filter(line => line.trim())
-    
-    for (const line of lines) {
-      const quantityMatch = line.match(/(\d+)\s*(个|件|瓶|盒|箱)/)
-      const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1
+    // 如果表格解析没找到数据，尝试备用方案
+    if (parsedData.length === 0 && allText.trim()) {
+      console.log('=== Using backup parsing method ===')
+      const lines = allText.split('\n').filter(line => line.trim())
       
-      const skuCodeMatch = line.match(/([A-Za-z0-9\-_]+)/)
-      const skuCode = skuCodeMatch ? skuCodeMatch[1] : ''
-      
-      if (skuCode || (quantity > 0 && line.length > 5)) {
-        parsedData.push({
-          skuCode,
-          skuName: line.substring(0, 50),
-          quantity
-        })
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (trimmed.length < 5) continue
+        if (trimmed.includes('合计') || trimmed.includes('总计')) continue
+        
+        const quantityMatch = trimmed.match(/\b(\d{1,4})\b/)
+        const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1
+        
+        const skuCodeMatch = trimmed.match(/([A-Za-z0-9\-_]{4,})/)
+        const skuCode = skuCodeMatch ? skuCodeMatch[1] : ''
+        
+        if (trimmed.length > 10 || skuCode) {
+          parsedData.push({
+            skuCode: skuCode,
+            skuName: trimmed.substring(0, 100),
+            quantity: quantity
+          })
+        }
       }
     }
     
-    if (parsedData.length === 0 && lines.length > 0) {
+    console.log('=== PDF parsing complete, found', parsedData.length, 'items ===')
+    
+    if (parsedData.length === 0 && allText.trim()) {
+      // 实在解析不出，添加至少一个占位项
       parsedData.push({
         skuCode: 'PDF-PARSED',
-        skuName: lines[0].substring(0, 50),
+        skuName: allText.substring(0, 50),
         quantity: 1
       })
     }
     
-  } catch (error) {
-    console.error('PDF parse error:', error)
+  } catch (error: any) {
+    console.error('PDF parse error:', error.message, error.stack)
+    parsedData.push({
+      skuCode: 'ERROR',
+      skuName: `PDF解析出错: ${error.message}`,
+      quantity: 1
+    })
   }
   
   return parsedData
