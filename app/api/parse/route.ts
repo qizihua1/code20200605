@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PrismaClient, ShipmentStatus } from '@prisma/client'
-import XLSX from 'xlsx'
+import { PrismaClient } from '@prisma/client'
+import * as XLSX from 'xlsx'
 import * as pdfjsLib from 'pdfjs-dist'
 import mammoth from 'mammoth'
 
