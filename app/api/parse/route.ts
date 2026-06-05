@@ -422,15 +422,77 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    let shipment: any = null
-    if (parsedData.length > 0) {
-      shipment = await prisma.shipment.create({
+    // 步骤1：检查与已存在数据的重复
+    const existingExternalCodes = new Set<string>()
+    const externalCodesFromData = parsedData
+      .filter(item => item.externalCode)
+      .map(item => item.externalCode)
+    
+    if (externalCodesFromData.length > 0) {
+      const existingShipments = await prisma.shipment.findMany({
+        where: {
+          externalCode: { in: externalCodesFromData }
+        },
+        select: { externalCode: true }
+      })
+      existingShipments.forEach(s => {
+        if (s.externalCode) existingExternalCodes.add(s.externalCode)
+      })
+    }
+    
+    // 步骤2：同批次内检测真正的重复（外部编码+SKU编码组合），并收集重复警告
+    const duplicateWarnings: Array<{ rowIndex: number, externalCode: string, skuCode: string }> = []
+    const seenCombinations = new Set<string>()
+    const duplicateWithDb: Array<{ rowIndex: number, externalCode: string }> = []
+    
+    parsedData.forEach((item, index) => {
+      if (item.externalCode && item.skuCode) {
+        const key = `${item.externalCode}|${item.skuCode}`
+        if (seenCombinations.has(key)) {
+          duplicateWarnings.push({
+            rowIndex: index + 1,
+            externalCode: item.externalCode,
+            skuCode: item.skuCode
+          })
+        } else {
+          seenCombinations.add(key)
+        }
+      }
+      
+      if (item.externalCode && existingExternalCodes.has(item.externalCode)) {
+        duplicateWithDb.push({
+          rowIndex: index + 1,
+          externalCode: item.externalCode
+        })
+      }
+    })
+    
+    // 步骤3：根据外部编码分组数据
+    const groupedData = new Map<string, any[]>()
+    parsedData.forEach(item => {
+      const key = item.externalCode || `UNGROUPED-${Date.now()}`
+      if (!groupedData.has(key)) {
+        groupedData.set(key, [])
+      }
+      groupedData.get(key)!.push(item)
+    })
+    
+    // 步骤4：创建运单记录
+    const shipments: any[] = []
+    for (const [externalCode, items] of groupedData) {
+      // 使用该组第一条数据的收货信息
+      const firstItem = items[0]
+      
+      const shipment = await prisma.shipment.create({
         data: {
-          externalCode: parsedData[0]?.externalCode || `UPLOAD-${Date.now()}`,
-          storeName: parsedData[0]?.storeName || '',
+          externalCode: externalCode.startsWith('UNGROUPED-') ? null : externalCode,
+          storeName: firstItem.storeName || '',
+          recipientName: firstItem.recipientName || '',
+          recipientPhone: firstItem.recipientPhone || '',
+          recipientAddress: firstItem.recipientAddress || '',
           status: 'pending',
           items: {
-            create: parsedData.map(item => ({
+            create: items.map(item => ({
               skuCode: item.skuCode || 'UNKNOWN',
               skuName: item.skuName || '',
               quantity: item.quantity || 0,
@@ -443,19 +505,29 @@ export async function POST(request: NextRequest) {
           items: true
         }
       })
+      shipments.push(shipment)
     }
+    
+    // 为返回数据添加标记，标识与数据库重复的行
+    const dataWithWarnings = parsedData.map((item, index) => {
+      const isDuplicateWithDb = duplicateWithDb.some(d => d.rowIndex === index + 1)
+      const isDuplicateInBatch = duplicateWarnings.some(d => d.rowIndex === index + 1)
+      return {
+        ...item,
+        rowIndex: index + 1,
+        duplicateWithDatabase: isDuplicateWithDb,
+        duplicateInBatch: isDuplicateInBatch
+      }
+    })
     
     return NextResponse.json({
       success: true,
-      data: shipment ? shipment.items.map((i: any) => ({
-        ...i,
-        externalCode: shipment.externalCode,
-        storeName: shipment.storeName,
-      })) : parsedData,
-      shipmentId: shipment?.id,
+      data: dataWithWarnings,
+      shipments,
       total: parsedData.length,
+      duplicateWarnings: [...duplicateWarnings, ...duplicateWithDb.map(d => ({...d, type: 'database'}))],
       message: parsedData.length > 0 
-        ? `成功解析 ${parsedData.length} 条数据` 
+        ? `成功解析 ${parsedData.length} 条数据，${duplicateWarnings.length + duplicateWithDb.length} 条重复提醒` 
         : '未解析到有效数据，请检查文件格式',
     })
     

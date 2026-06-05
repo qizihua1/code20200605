@@ -35,6 +35,7 @@ export default function ImportPage() {
   const [parsedData, setParsedData] = useState<ShipmentData[]>([])
   const [showPreview, setShowPreview] = useState(false)
   const [errors, setErrors] = useState<any[]>([])
+  const [duplicateWarnings, setDuplicateWarnings] = useState<any[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [progress, setProgress] = useState(0)
 
@@ -63,7 +64,8 @@ export default function ImportPage() {
   const validateData = (data: ShipmentData[]) => {
     const validData: ShipmentData[] = []
     const errorList: any[] = []
-    const externalCodeSet = new Set<string>()
+    // 记录外部编码和SKU编码的组合，用于检测真正的重复
+    const externalAndSkuSet = new Set<string>()
 
     data.forEach((row, index) => {
       const rowErrors: string[] = []
@@ -86,11 +88,13 @@ export default function ImportPage() {
         }
       }
 
-      if (row.externalCode) {
-        if (externalCodeSet.has(row.externalCode)) {
-          rowErrors.push('外部编码与第 ' + (Array.from(externalCodeSet).indexOf(row.externalCode) + 1) + ' 行重复')
+      // 检测真正的重复：同一个外部编码 + 同一个SKU编码 重复出现
+      if (row.externalCode && row.skuCode) {
+        const compositeKey = `${row.externalCode}|${row.skuCode}`
+        if (externalAndSkuSet.has(compositeKey)) {
+          rowErrors.push('外部编码+SKU编码组合重复')
         } else {
-          externalCodeSet.add(row.externalCode)
+          externalAndSkuSet.add(compositeKey)
         }
       }
 
@@ -154,10 +158,23 @@ export default function ImportPage() {
       const { valid, errors: validationErrors } = validateData(result.data || [])
       setParsedData(valid)
       setErrors(validationErrors)
+      
+      // 设置重复警告
+      if (result.duplicateWarnings && result.duplicateWarnings.length > 0) {
+        setDuplicateWarnings(result.duplicateWarnings)
+      } else {
+        setDuplicateWarnings([])
+      }
+      
       setShowPreview(true)
       setProgress(100)
       
-      toast.success('解析完成！共 ' + (result.data?.length || 0) + ' 条数据' + (validationErrors.length > 0 ? '，发现 ' + validationErrors.length + ' 个问题' : ''))
+      const successMsg = `解析完成！共 ${(result.data || []).length} 条数据${
+        validationErrors.length > 0 ? `，发现 ${validationErrors.length} 个错误` : ''
+      }${
+        result.duplicateWarnings?.length > 0 ? `，${result.duplicateWarnings.length} 条重复提醒` : ''
+      }`
+      toast.success(successMsg)
     } catch (error) {
       toast.error('解析失败')
     } finally {
@@ -447,7 +464,7 @@ export default function ImportPage() {
             </div>
             
             {errors.length > 0 && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
                 <h3 className="font-semibold text-red-800 mb-3 flex items-center">
                   发现 {errors.length} 个问题（需修正后才能提交）
                 </h3>
@@ -455,6 +472,24 @@ export default function ImportPage() {
                   {errors.map((err, idx) => (
                     <div key={idx} className="text-sm text-red-700 bg-red-100 rounded px-3 py-2">
                       第 {err.rowIndex} 行：{err.message}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {duplicateWarnings.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+                <h3 className="font-semibold text-amber-800 mb-3 flex items-center">
+                  ⚠️ 重复提醒（共 {duplicateWarnings.length} 条，不影响提交）
+                </h3>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {duplicateWarnings.map((warn, idx) => (
+                    <div key={idx} className="text-sm text-amber-700 bg-amber-100 rounded px-3 py-2">
+                      第 {warn.rowIndex} 行：{warn.type === 'database' 
+                        ? `外部编码 "${warn.externalCode}" 在数据库中已存在`
+                        : `外部编码+SKU组合 "${warn.externalCode}+${warn.skuCode}" 在本批次内重复`
+                      }
                     </div>
                   ))}
                 </div>
@@ -485,11 +520,21 @@ export default function ImportPage() {
                     const skuCodeClass = hasError && !row.skuCode ? 'border-red-500 bg-red-100' : ''
                     const skuNameClass = hasError && !row.skuName ? 'border-red-500 bg-red-100' : ''
                     const quantityClass = hasError && (!row.quantity || row.quantity <= 0) ? 'border-red-500 bg-red-100' : ''
-                    const rowClass = hasError ? 'bg-red-50' : 'hover:bg-gray-50'
+                    
+                    // 检查是否是重复行
+                    const isDuplicate = duplicateWarnings.some(w => w.rowIndex === idx + 1)
+                    const rowClass = hasError 
+                      ? 'bg-red-50' 
+                      : isDuplicate 
+                        ? 'bg-amber-50 hover:bg-amber-100' 
+                        : 'hover:bg-gray-50'
                     
                     return (
                       <tr key={idx} className={rowClass}>
-                        <td className="p-2 text-center text-gray-500">{idx + 1}</td>
+                        <td className="p-2 text-center text-gray-500">
+                          {idx + 1}
+                          {isDuplicate && <span className="ml-1 text-amber-600 text-xs">⚠️</span>}
+                        </td>
                         <td className="p-2">
                           <input
                             type="text"
