@@ -244,25 +244,24 @@ export default function ImportPage() {
         setProgress(Math.round(((i + 1) / parsedData.length) * 100))
       }
       
-      const formData = new FormData()
-      if (file) formData.append('file', file)
-      if (selectedRule) formData.append('ruleId', selectedRule)
-      
-      const res = await fetch('/api/parse', {
+      const res = await fetch('/api/submit', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data: parsedData }),
       })
 
       const result = await res.json()
 
       if (result.success) {
-        toast.success('提交成功！共 ' + parsedData.length + ' 条数据')
+        toast.success(result.message || '提交成功！')
         setShowPreview(false)
         setFile(null)
         setParsedData([])
         setErrors([])
       } else {
-        toast.error('提交失败')
+        toast.error(result.error || '提交失败')
       }
     } catch (error) {
       toast.error('提交失败')

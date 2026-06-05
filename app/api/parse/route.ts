@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { simulateAIGenerateRule } from '@/lib/ai-rule-generator'
-import { PrismaClient } from '@prisma/client'
-import * as XLSX from 'xlsx'
-import * as pdfjs from 'pdfjs-dist'
-import * as mammoth from 'mammoth'
+import { PrismaClient, ShipmentStatus } from '@prisma/client'
+import XLSX from 'xlsx'
+import * as pdfjsLib from 'pdfjs-dist'
+import mammoth from 'mammoth'
 
 const prisma = new PrismaClient()
 
-// 初始化 PDF.js
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
 
 // 常见的表头关键词映射
 const KEYWORD_MAPPINGS = {
@@ -24,63 +22,39 @@ const KEYWORD_MAPPINGS = {
   remarks: ['备注', '说明', '单据备注', '物品备注'],
 }
 
-// 智能查找表头行
+// 查找最佳表头行
 function findHeaderRow(data: any[][]) {
-  // 查找包含最多关键词的行
   let maxScore = 0
   let bestRow = 0
   
+  // 前15行找最佳表头
   for (let i = 0; i < Math.min(15, data.length); i++) {
     const row = data[i]
     let score = 0
     
-    // 统计这一行包含多少关键词
+    // 检查每行包含的关键词数量
     for (const cell of row) {
       const cellStr = String(cell || '').trim()
       const allKeywords = Object.values(KEYWORD_MAPPINGS).flat()
       for (const keyword of allKeywords) {
         if (cellStr.includes(keyword)) {
           score++
-          break // 每个单元格只算一次
+          break
         }
       }
     }
     
-    // 检查这一行是不是可能的标题行
-    const isMostlyText = row.filter(cell => 
-      typeof cell === 'string' && cell.length > 2
-    ).length > row.length / 2
-    
-    // 检查是否包含序号列，这通常意味着是表头
+    // 加分项：有"序号"列的可能性更大
     const hasIndexColumn = row.some(cell => 
       String(cell).includes('序号') || String(cell) === '序号'
     )
-    
     if (hasIndexColumn) {
-      score += 5 // 给序号列加权重
-    }
-    
-    if (isMostlyText) {
-      score += 2
+      score += 5
     }
     
     if (score > maxScore) {
       maxScore = score
       bestRow = i
-    }
-  }
-  
-  // 如果找到的分数不够高，返回第一个有意义的行
-  if (maxScore < 2) {
-    // 尝试跳过说明性的行，找有数据的行
-    for (let i = 0; i < Math.min(10, data.length); i++) {
-      const row = data[i]
-      const hasNumericCell = row.some(cell => 
-        typeof cell === 'number' || !isNaN(parseInt(String(cell)))
-      )
-      if (hasNumericCell && i > 0) {
-        return i - 1 // 数据行的前一行可能是表头
-      }
     }
   }
   
@@ -90,33 +64,46 @@ function findHeaderRow(data: any[][]) {
 // 匹配字段到列
 function mapColumnsToFields(headerRow: any[]) {
   const mapping: Record<string, number> = {}
+  const fieldScores: Record<string, {score: number, idx: number}> = {}
   
   headerRow.forEach((cell, idx) => {
     const cellStr = String(cell || '').trim()
+    if (!cellStr) return
     
     for (const [field, keywords] of Object.entries(KEYWORD_MAPPINGS)) {
-      // 精确匹配或包含匹配
-      const exactMatch = keywords.some(keyword => cellStr === keyword)
-      const containsMatch = keywords.some(keyword => 
-        cellStr.includes(keyword) || 
-        cellStr.toLowerCase().includes(keyword.toLowerCase())
-      )
-      
-      // 精确匹配优先
-      if (exactMatch || containsMatch) {
-        // 如果已经有映射了，只在精确匹配时才覆盖
-        if (!mapping[field] || exactMatch) {
-          mapping[field] = idx
+      for (let priority = 0; priority < keywords.length; priority++) {
+        const keyword = keywords[priority]
+        let score = 0
+        
+        if (cellStr === keyword) {
+          score = 100 - priority
+        } else if (cellStr.includes(keyword)) {
+          score = 50 - priority
         }
-        break
+        
+        if (score > 0) {
+          if (!fieldScores[field] || score > fieldScores[field].score) {
+            fieldScores[field] = { score, idx }
+          }
+        }
       }
     }
   })
   
+  const sortedFields = Object.entries(fieldScores).sort((a, b) => b[1].score - a[1].score)
+  const usedColumns = new Set<number>()
+  
+  for (const [field, { idx }] of sortedFields) {
+    if (!usedColumns.has(idx)) {
+      mapping[field] = idx
+      usedColumns.add(idx)
+    }
+  }
+  
   return mapping
 }
 
-// 智能解析 Excel 数据
+// 智能解析Excel
 function smartParseExcel(buffer: ArrayBuffer) {
   const workbook = XLSX.read(buffer, { type: 'array' })
   const parsedData: any[] = []
@@ -131,120 +118,77 @@ function smartParseExcel(buffer: ArrayBuffer) {
     const headerRow = data[headerRowIdx]
     const fieldMapping = mapColumnsToFields(headerRow)
     
-    // 尝试提取门店信息（前几行可能包含）
-    let sheetStoreName = ''
-    for (let i = 0; i < Math.min(headerRowIdx + 2, data.length); i++) {
-      const row = data[i]
-      for (const cell of row) {
-        const cellStr = String(cell || '')
-        if (cellStr.includes('门店') || cellStr.includes('店）')) {
-          const match = cellStr.match(/（([^）]+)店）/) || cellStr.match(/([^\s]+店)/)
-          if (match) {
-            sheetStoreName = match[1] || match[0]
-            break
-          }
-        }
-      }
-      if (sheetStoreName) break
-    }
-    
     const hasKeyFields = fieldMapping.skuCode !== undefined || fieldMapping.skuName !== undefined
     
-    if (!hasKeyFields) continue
-    
-    const dataStartRow = headerRowIdx + 1
-    
-    for (let i = dataStartRow; i < data.length; i++) {
-      const row = data[i]
-      
-      if (row.every(cell => !cell || String(cell).trim() === '')) {
-        continue
-      }
-      
-      const item: any = {
-        skuCode: '',
-        skuName: '',
-        quantity: 0,
-      }
-      
-      for (const [field, colIdx] of Object.entries(fieldMapping)) {
-        const value = row[colIdx]
-        if (value !== undefined && value !== null) {
-          if (field === 'quantity') {
-            let qty = 0
-            if (value !== null && value !== undefined && value !== '') {
-              qty = parseInt(String(value)) || 0
-            }
-            if (qty === 0) {
-              for (let j = 0; j < row.length; j++) {
-                const cell = row[j]
-                const cellNum = parseInt(String(cell))
-                if (cellNum > 0 && cellNum < 10000) {
-                  qty = cellNum
-                  break
-                }
-              }
-            }
-            item[field] = qty
-          } else {
-            item[field] = String(value || '').trim()
-          }
+    if (!hasKeyFields) {
+      // 如果找不到关键字段，尝试从附近的行
+      for (let tryRow = Math.max(0, headerRowIdx - 3); tryRow < Math.min(headerRowIdx + 3, data.length); tryRow++) {
+        const tryHeaderRow = data[tryRow]
+        const tryMapping = mapColumnsToFields(tryHeaderRow)
+        if (tryMapping.skuCode !== undefined || tryMapping.skuName !== undefined) {
+          parseExcelFromRow(data, tryRow, tryMapping, parsedData)
+          break
         }
       }
-      
-      // 特殊处理欢乐牧场这类：SKU名称在第2列（索引1）
-      // 检查是否有明显的货主名称在SKU位置
-      if (item.skuName && ['欢乐牧场', '尹三顺', '寨寨', '黎明屯'].includes(item.skuName)) {
-        const skuNameCol = 2 // 欢乐牧场的SKU名称在第3列（索引2）
-        if (row[skuNameCol]) {
-          const candidate = String(row[skuNameCol] || '')
-          if (candidate.length > 3 && candidate.length < 100) {
-            item.skuName = candidate
-          }
-        }
-      }
-      
-      // 备用策略：如果没有找到SKU名称，尝试找合理的文本列
-      if (!item.skuName || item.skuName.length < 3) {
-        for (let j = 0; j < row.length; j++) {
-          const val = String(row[j] || '')
-          if (val.length > 3 && val.length < 100 && !/^\d+$/.test(val) && !val.includes('仓库') && !val.includes('正常') && !val.includes('正品')) {
-            // 检查是否已经被用作其他字段了
-            let isUsed = false
-            for (const [field, colIdx] of Object.entries(fieldMapping)) {
-              if (colIdx === j && field !== 'specification') {
-                isUsed = true
-                break
-              }
-            }
-            if (!isUsed) {
-              item.skuName = val
-              break
-            }
-          }
-        }
-      }
-      
-      if (item.skuCode || item.skuName) {
-        if (workbook.SheetNames.length > 1) {
-          item.storeName = item.storeName || sheetName
-        } else if (sheetStoreName) {
-          item.storeName = item.storeName || sheetStoreName
-        }
-        parsedData.push(item)
-      }
+      continue
     }
+    
+    parseExcelFromRow(data, headerRowIdx, fieldMapping, parsedData)
   }
   
   return parsedData
 }
 
-// 解析 PDF 文件
-async function smartParsePDF(buffer: ArrayBuffer): Promise<any[]> {
-  const parsedData: any[] = []
+function parseExcelFromRow(data: any[][], headerRowIdx: number, fieldMapping: Record<string, number>, result: any[]) {
+  const dataStartRow = headerRowIdx + 1
   
+  for (let i = dataStartRow; i < data.length; i++) {
+    const row = data[i]
+    
+    // 跳过空行
+    if (row.every(cell => !cell || String(cell).trim() === '')) {
+      continue
+    }
+    
+    const item: any = {}
+    
+    for (const [field, colIdx] of Object.entries(fieldMapping)) {
+      const value = row[colIdx]
+      if (value !== undefined && value !== null) {
+        if (field === 'quantity') {
+          let qty = 0
+          if (value !== null && value !== undefined && value !== '') {
+            qty = parseInt(String(value)) || 0
+          }
+          // 如果数量是0，尝试从其他列找数值
+          if (qty === 0) {
+            for (let j = 0; j < row.length; j++) {
+              const cell = row[j]
+              const cellNum = parseInt(String(cell))
+              if (cellNum > 0 && cellNum < 10000) {
+                qty = cellNum
+                break
+              }
+            }
+          }
+          item[field] = qty
+        } else {
+          item[field] = String(value || '').trim()
+        }
+      }
+    }
+    
+    if (item.skuCode || item.skuName) {
+      result.push(item)
+    }
+  }
+}
+
+// 解析PDF
+async function smartParsePDF(buffer: ArrayBuffer) {
+  const parsedData: any[] = []
   try {
-    const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise
     let fullText = ''
     
     for (let i = 1; i <= pdf.numPages; i++) {
@@ -254,13 +198,10 @@ async function smartParsePDF(buffer: ArrayBuffer): Promise<any[]> {
       fullText += pageText + '\n'
     }
     
-    // 简单的文本解析：尝试从文本中提取 SKU 和数量信息
     const lines = fullText.split('\n').filter(line => line.trim())
     
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim()
-      
-      const quantityMatch = line.match(/(\d+)\s*(个|件|瓶|盒|箱)?/)
+    for (const line of lines) {
+      const quantityMatch = line.match(/(\d+)\s*(个|件|瓶|盒|箱)/)
       const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1
       
       const skuCodeMatch = line.match(/([A-Za-z0-9\-_]+)/)
@@ -290,20 +231,18 @@ async function smartParsePDF(buffer: ArrayBuffer): Promise<any[]> {
   return parsedData
 }
 
-// 解析 Word 文件
-async function smartParseWord(buffer: ArrayBuffer): Promise<any[]> {
+// 解析Word
+async function smartParseWord(buffer: ArrayBuffer) {
   const parsedData: any[] = []
-  
   try {
-    const result = await mammoth.extractRawText({ arrayBuffer: buffer })
-    const text = result.value
-    
+    const { value } = await mammoth.extractRawText({ arrayBuffer: buffer })
+    const text = value
     const lines = text.split('\n').filter(line => line.trim())
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim()
       
-      const quantityMatch = line.match(/(\d+)\s*(个|件|瓶|盒|箱)?/)
+      const quantityMatch = line.match(/(\d+)\s*(个|件|瓶|盒|箱)/)
       const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1
       
       const skuCodeMatch = line.match(/([A-Za-z0-9\-_]+)/)
@@ -333,6 +272,45 @@ async function smartParseWord(buffer: ArrayBuffer): Promise<any[]> {
   return parsedData
 }
 
+// 模拟AI规则生成
+function simulateAIGenerateRule(fileName: string, buffer: ArrayBuffer) {
+  const analysis = analyzeExcel(buffer)
+  
+  const rules = [
+    {
+      name: '标准表格解析',
+      description: '适用于大多数标准Excel表格',
+      fieldMappings: [
+        { field: 'skuCode', source: 'SKU编码' },
+        { field: 'skuName', source: 'SKU名称' },
+        { field: 'quantity', source: '数量' }
+      ],
+      confidence: 0.8
+    }
+  ]
+  
+  return {
+    success: true,
+    fileName,
+    analysis,
+    recommendedRules: rules,
+  }
+}
+
+function analyzeExcel(buffer: ArrayBuffer) {
+  const workbook = XLSX.read(buffer, { type: 'array' })
+  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  const data = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+  
+  return {
+    sheetCount: workbook.SheetNames.length,
+    rowCount: data.length,
+    columns: data[0]?.length || 0,
+    sampleHeaders: data[0]?.slice(0, 10).map(c => String(c || '')) || []
+  }
+}
+
+// 解析API - 只解析不保存
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -346,7 +324,6 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer()
     const fileName = file.name.toLowerCase()
     
-    // 检查是否是 AI 规则建议请求（没有 ruleId，并且没有 useSmartParsing）
     const useSmartParsing = formData.has('useSmartParsing')
     
     if (!ruleId && !useSmartParsing) {
@@ -354,7 +331,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result)
     }
     
-    // 根据文件类型解析
     let parsedData: any[] = []
     
     if (fileName.endsWith('.pdf')) {
@@ -362,17 +338,15 @@ export async function POST(request: NextRequest) {
     } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
       parsedData = await smartParseWord(bytes)
     } else {
-      // Excel 文件（xlsx, xls）
       parsedData = smartParseExcel(bytes)
     }
     
-    // 如果有规则并且解析结果不好，尝试使用规则解析
     if (ruleId && parsedData.length === 0) {
       const rule = await prisma.parsingRule.findUnique({
         where: { id: ruleId }
       })
       
-      if (rule && (fileName.endsWith('.xlsx') || fileName.endsWith('.xls'))) {
+      if (rule && (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
         const workbook = XLSX.read(bytes, { type: 'array' })
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
         const data = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][]
@@ -398,7 +372,7 @@ export async function POST(request: NextRequest) {
           
           for (const mapping of fieldMappings) {
             if (mapping.sourceType === 'column') {
-              const colIdx = colIndexMap[mapping.source] ?? mapping.column_index
+              const colIdx = colIndexMap[mapping.source] || mapping.column_index
               let value = row[colIdx]
               
               if (mapping.transform === 'number') {
@@ -422,7 +396,6 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // 步骤1：检查与已存在数据的重复
     const existingExternalCodes = new Set<string>()
     const externalCodesFromData = parsedData
       .filter(item => item.externalCode)
@@ -440,7 +413,6 @@ export async function POST(request: NextRequest) {
       })
     }
     
-    // 步骤2：同批次内检测真正的重复（外部编码+SKU编码组合），并收集重复警告
     const duplicateWarnings: Array<{ rowIndex: number, externalCode: string, skuCode: string }> = []
     const seenCombinations = new Set<string>()
     const duplicateWithDb: Array<{ rowIndex: number, externalCode: string }> = []
@@ -467,48 +439,6 @@ export async function POST(request: NextRequest) {
       }
     })
     
-    // 步骤3：根据外部编码分组数据
-    const groupedData = new Map<string, any[]>()
-    parsedData.forEach(item => {
-      const key = item.externalCode || `UNGROUPED-${Date.now()}`
-      if (!groupedData.has(key)) {
-        groupedData.set(key, [])
-      }
-      groupedData.get(key)!.push(item)
-    })
-    
-    // 步骤4：创建运单记录
-    const shipments: any[] = []
-    for (const [externalCode, items] of groupedData) {
-      // 使用该组第一条数据的收货信息
-      const firstItem = items[0]
-      
-      const shipment = await prisma.shipment.create({
-        data: {
-          externalCode: externalCode.startsWith('UNGROUPED-') ? null : externalCode,
-          storeName: firstItem.storeName || '',
-          recipientName: firstItem.recipientName || '',
-          recipientPhone: firstItem.recipientPhone || '',
-          recipientAddress: firstItem.recipientAddress || '',
-          status: 'pending',
-          items: {
-            create: items.map(item => ({
-              skuCode: item.skuCode || 'UNKNOWN',
-              skuName: item.skuName || '',
-              quantity: item.quantity || 0,
-              specification: item.specification || '',
-              remarks: item.remarks || '',
-            }))
-          }
-        },
-        include: {
-          items: true
-        }
-      })
-      shipments.push(shipment)
-    }
-    
-    // 为返回数据添加标记，标识与数据库重复的行
     const dataWithWarnings = parsedData.map((item, index) => {
       const isDuplicateWithDb = duplicateWithDb.some(d => d.rowIndex === index + 1)
       const isDuplicateInBatch = duplicateWarnings.some(d => d.rowIndex === index + 1)
@@ -523,7 +453,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: dataWithWarnings,
-      shipments,
       total: parsedData.length,
       duplicateWarnings: [...duplicateWarnings, ...duplicateWithDb.map(d => ({...d, type: 'database'}))],
       message: parsedData.length > 0 
