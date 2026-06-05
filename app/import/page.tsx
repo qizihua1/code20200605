@@ -130,7 +130,9 @@ export default function ImportPage() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      if (selectedRule &amp;&amp; !useSmartParsing) {
+      if (useSmartParsing) {
+        formData.append('useSmartParsing', 'true')
+      } else if (selectedRule) {
         formData.append('ruleId', selectedRule)
       }
 
