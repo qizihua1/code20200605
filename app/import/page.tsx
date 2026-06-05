@@ -255,6 +255,15 @@ export default function ImportPage() {
     }
   }
 
+  const isButtonDisabled = !file || (!selectedRule && rules.length > 0) || parsing
+  const buttonClass = isButtonDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-700 hover:shadow-lg transform hover:-translate-y-0.5'
+  
+  const smartButtonDisabled = !file || parsing
+  const smartButtonClass = smartButtonDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg transform hover:-translate-y-0.5'
+  
+  const submitDisabled = submitting || parsedData.some(row => row.errors && row.errors.length > 0)
+  const submitClass = submitDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-700'
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-cyan-50 to-teal-50">
       <Toaster position="top-center" richColors />
@@ -351,18 +360,10 @@ export default function ImportPage() {
                 <div
                   key={rule.id}
                   onClick={() => setSelectedRule(rule.id)}
-                  className={`
-                    border rounded-lg p-4 cursor-pointer transition-all
-                    ${selectedRule === rule.id 
-                      ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200' 
-                      : 'border-gray-200 hover:border-teal-300'
-                    }
-                  `}
+                  className={selectedRule === rule.id ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200' : 'border-gray-200 hover:border-teal-300' + ' border rounded-lg p-4 cursor-pointer transition-all'}
                 >
                   <div className="flex items-center mb-2">
-                    <div className={`w-4 h-4 rounded-full border-2 mr-2
-                      ${selectedRule === rule.id ? 'border-teal-600 bg-teal-600' : 'border-gray-300'}
-                    `} />
+                    <div className={selectedRule === rule.id ? 'border-teal-600 bg-teal-600' : 'border-gray-300' + ' w-4 h-4 rounded-full border-2 mr-2'} />
                     <span className="font-semibold text-gray-800">{rule.name}</span>
                   </div>
                   <p className="text-sm text-gray-600 truncate">
@@ -383,14 +384,8 @@ export default function ImportPage() {
           <div className="flex gap-4">
             <button
               onClick={() => handleUpload(false)}
-              disabled={!file || (!selectedRule && rules.length > 0) || parsing}
-              className={`
-                flex-1 py-4 rounded-lg text-white font-semibold text-lg transition-all
-                ${!file || (!selectedRule && rules.length > 0) || parsing
-                  ? 'bg-gray-400 cursor-not-allowed' 
-                  : 'bg-teal-600 hover:bg-teal-700 hover:shadow-lg transform hover:-translate-y-0.5'
-                }
-              `}
+              disabled={isButtonDisabled}
+              className={'flex-1 py-4 rounded-lg text-white font-semibold text-lg transition-all ' + buttonClass}
             >
               {parsing ? (
                 <span className="flex items-center justify-center">
@@ -407,14 +402,8 @@ export default function ImportPage() {
             
             <button
               onClick={() => handleUpload(true)}
-              disabled={!file || parsing}
-              className={`
-                flex-1 py-4 rounded-lg text-white font-semibold text-lg transition-all
-                ${!file || parsing
-                  ? 'bg-gray-400 cursor-not-allowed' 
-                  : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg transform hover:-translate-y-0.5'
-                }
-              `}
+              disabled={smartButtonDisabled}
+              className={'flex-1 py-4 rounded-lg text-white font-semibold text-lg transition-all ' + smartButtonClass}
             >
               {parsing ? (
                 <span className="flex items-center justify-center">
@@ -490,8 +479,13 @@ export default function ImportPage() {
                 <tbody className="divide-y">
                   {parsedData.map((row, idx) => {
                     const hasError = row.errors && row.errors.length > 0
+                    const skuCodeClass = hasError && !row.skuCode ? 'border-red-500 bg-red-100' : ''
+                    const skuNameClass = hasError && !row.skuName ? 'border-red-500 bg-red-100' : ''
+                    const quantityClass = hasError && (!row.quantity || row.quantity <= 0) ? 'border-red-500 bg-red-100' : ''
+                    const rowClass = hasError ? 'bg-red-50' : 'hover:bg-gray-50'
+                    
                     return (
-                      <tr key={idx} className={hasError ? 'bg-red-50' : 'hover:bg-gray-50'}>
+                      <tr key={idx} className={rowClass}>
                         <td className="p-2 text-center text-gray-500">{idx + 1}</td>
                         <td className="p-2">
                           <input
@@ -543,7 +537,7 @@ export default function ImportPage() {
                             type="text"
                             value={row.skuCode}
                             onChange={(e) => handleCellChange(idx, 'skuCode', e.target.value)}
-                            className={`w-full px-2 py-1 border rounded focus:ring-1 focus:ring-teal-500 ${hasError && !row.skuCode ? 'border-red-500 bg-red-100' : ''}`}
+                            className={'w-full px-2 py-1 border rounded focus:ring-1 focus:ring-teal-500 ' + skuCodeClass}
                             placeholder="SKU编码"
                           />
                         </td>
@@ -552,7 +546,7 @@ export default function ImportPage() {
                             type="text"
                             value={row.skuName}
                             onChange={(e) => handleCellChange(idx, 'skuName', e.target.value)}
-                            className={`w-full px-2 py-1 border rounded focus:ring-1 focus:ring-teal-500 ${hasError && !row.skuName ? 'border-red-500 bg-red-100' : ''}`}
+                            className={'w-full px-2 py-1 border rounded focus:ring-1 focus:ring-teal-500 ' + skuNameClass}
                             placeholder="SKU名称"
                           />
                         </td>
@@ -561,7 +555,7 @@ export default function ImportPage() {
                             type="number"
                             value={row.quantity}
                             onChange={(e) => handleCellChange(idx, 'quantity', parseInt(e.target.value))}
-                            className={`w-24 px-2 py-1 border rounded focus:ring-1 focus:ring-teal-500 ${hasError && (!row.quantity || row.quantity <= 0) ? 'border-red-500 bg-red-100' : ''}`}
+                            className={'w-24 px-2 py-1 border rounded focus:ring-1 focus:ring-teal-500 ' + quantityClass}
                           />
                         </td>
                         <td className="p-2">
@@ -617,13 +611,8 @@ export default function ImportPage() {
                 </button>
                 <button
                   onClick={handleSubmit}
-                  disabled={submitting || parsedData.some(row => row.errors && row.errors.length > 0)}
-                  className={`px-8 py-2 rounded-lg text-white font-semibold transition-all
-                    ${submitting || parsedData.some(row => row.errors && row.errors.length > 0)
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-teal-600 hover:bg-teal-700'
-                    }
-                  `}
+                  disabled={submitDisabled}
+                  className={'px-8 py-2 rounded-lg text-white font-semibold transition-all ' + submitClass}
                 >
                   {submitting ? (
                     <span className="flex items-center gap-2">
