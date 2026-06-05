@@ -7,33 +7,71 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 解析规则配置
 model ParsingRule {
-  id            String   @id @default(cuid())
-  name          String
-  description   String?
-  format        String   // 'excel' | 'word' | 'pdf'
-  structure     Json     // StructureConfig
-  fieldMappings Json     // FieldMapping[]
-  aggregations  Json?    // AggregationRule[]
-  transformations Json?  // TransformRule[]
-  extractions   Json?    // ExtractionRule[]
+  id              String   @id @default(cuid())
+  name            String   // 规则名称（用户定义，如"黎明屯配送单规则"）
+  description     String?  // 规则描述
+  fileFormat      String   // excel | word | pdf
+  fileNamePattern String?  // 文件名匹配模式（可选，用于提示）
+  
+  // 规则核心配置 - JSON Schema
+  // 结构：{
+  //   headerSkip: number,            // 跳过前 N 行
+  //   dataStartRow: number,          // 数据从第 N 行开始
+  //   sheetStrategy: string,         // all | first | byName
+  //   sheetNames: string[],          // 指定 Sheet 列表
+  //   extractionType: string,        // table | card | matrix | text
+  //   footerExtract: FooterRule[],   // 尾部信息提取规则
+  //   crossRowAggregate: boolean,    // 是否跨行聚合
+  //   aggregationKey: string,        // 聚合键字段
+  //   cellTransform: string,         // 单元格转换规则
+  //   textSeparator: string,         // 文本分隔符（Word/PDF 用）
+  //   cardMarker: string             // 卡片起始标记
+  // }
+  structure       Json     
+  
+  // 字段映射 - JSON Array
+  // 结构：[
+  //   {
+  //     field: "skuCode",            // 目标字段
+  //     sourceType: "column" | "header" | "footer" | "static",
+  //     source: "物品编码",          // 列名/表头关键词/尾部键/静态值
+  //     column_index: number,        // 列索引（0-based，备选）
+  //     transform: "trim|number|...",// 转换函数
+  //     required: true,
+  //     defaultValue: ""
+  //   }
+  // ]
+  fieldMappings   Json     
+  
+  // 转换规则 - 可选
+  // 结构：[
+  //   {
+  //     type: "transpose",           // matrix | split | aggregate
+  //     config: {...}
+  //   }
+  // ]
+  transformations Json?
+  
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  createdBy     String?
   
+  // 使用此规则解析的运单
   shipments     Shipment[]
 
   @@map("parsing_rules")
 }
 
+// 运单主表
 model Shipment {
   id               String    @id @default(cuid())
-  externalCode     String?   // 外部编码 (可选)
+  externalCode     String?   // 外部编码（用于去重聚合）
   
   // A 组 - 门店模式
   storeName        String?
   
-  // B 组 - 收件人模式
+  // B 组 - 收件人模式（至少 A 组或 B 组之一必填）
   recipientName    String?
   recipientPhone   String?
   recipientAddress String?
@@ -44,16 +82,21 @@ model Shipment {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   
-  items            ShipmentItem[]
+  // 关联的解析规则
   parsingRule      ParsingRule? @relation(fields: [parsingRuleId], references: [id])
   parsingRuleId    String?
   
+  // 物品明细
+  items            ShipmentItem[]
+  
   @@index([externalCode])
+  @@index([storeName])
   @@index([recipientName])
   @@index([submittedAt])
   @@map("shipments")
 }
 
+// 运单物品明细
 model ShipmentItem {
   id            String    @id @default(cuid())
   shipment      Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
@@ -64,6 +107,10 @@ model ShipmentItem {
   quantity      Int
   specification String?
   remarks       String?
+  
+  // 校验标记
+  isValid       Boolean   @default(true)
+  errors        String?   // JSON Array of error messages
   
   @@index([shipmentId])
   @@map("shipment_items")
