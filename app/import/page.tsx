@@ -56,7 +56,7 @@ export default function ImportPage() {
     const selected = e.target.files?.[0]
     if (selected) {
       setFile(selected)
-      toast.success(`已选择：${selected.name}`)
+      toast.success('已选择：' + selected.name)
     }
   }
 
@@ -88,7 +88,7 @@ export default function ImportPage() {
 
       if (row.externalCode) {
         if (externalCodeSet.has(row.externalCode)) {
-          rowErrors.push(`外部编码与第 ${Array.from(externalCodeSet).indexOf(row.externalCode) + 1} 行重复`)
+          rowErrors.push('外部编码与第 ' + (Array.from(externalCodeSet).indexOf(row.externalCode) + 1) + ' 行重复')
         } else {
           externalCodeSet.add(row.externalCode)
         }
@@ -157,7 +157,7 @@ export default function ImportPage() {
       setShowPreview(true)
       setProgress(100)
       
-      toast.success(`解析完成！共 ${result.data?.length || 0} 条数据${validationErrors.length > 0 ? `，发现 ${validationErrors.length} 个问题` : ''}`)
+      toast.success('解析完成！共 ' + (result.data?.length || 0) + ' 条数据' + (validationErrors.length > 0 ? '，发现 ' + validationErrors.length + ' 个问题' : ''))
     } catch (error) {
       toast.error('解析失败')
     } finally {
@@ -239,7 +239,7 @@ export default function ImportPage() {
       const result = await res.json()
 
       if (result.success) {
-        toast.success(`提交成功！共 ${parsedData.length} 条数据`)
+        toast.success('提交成功！共 ' + parsedData.length + ' 条数据')
         setShowPreview(false)
         setFile(null)
         setParsedData([])
@@ -318,7 +318,7 @@ export default function ImportPage() {
               <div className="w-full bg-gray-200 rounded-full h-2.5">
                 <div
                   className="bg-teal-600 h-2.5 rounded-full transition-all duration-300"
-                  style={{ width: `${progress}%` }}
+                  style={{ width: progress + '%' }}
                 />
               </div>
             </div>
