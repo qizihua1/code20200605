@@ -27,12 +27,23 @@ export async function smartParse(buffer: ArrayBuffer, fileName: string) {
 // 智能解析Excel - 不需要规则
 function parseExcel(buffer: ArrayBuffer) {
   try {
+    // 读取Excel文件
     const workbook = XLSX.read(buffer, { type: 'array' })
     const parsedData: any[] = []
 
+    // 遍历所有Sheet
     for (const sheetName of workbook.SheetNames) {
       const sheet = workbook.Sheets[sheetName]
-      const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
+      
+      // 获取范围信息
+      const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1')
+      
+      // 使用原始数组方式读取，确保读取所有列
+      const data = XLSX.utils.sheet_to_json(sheet, { 
+        header: 1,
+        defval: null,
+        blankrows: false
+      }) as any[][]
 
       if (data.length < 2) continue
 
@@ -49,33 +60,61 @@ function parseExcel(buffer: ArrayBuffer) {
         if (!row || row.length === 0) continue
 
         // 跳过空行
-        if (row.every(cell => !cell || String(cell).trim() === '')) {
+        if (row.every(cell => cell === null || cell === undefined || String(cell).trim() === '')) {
           continue
         }
 
         // 跳过合计行
-        const rowStr = row.map(c => String(c || '')).join('')
+        const rowStr = row.map(c => String(c ?? '')).join('')
         if (rowStr.includes('合计') || rowStr.includes('总计')) {
           continue
         }
 
         const item: any = {}
 
-        for (const [field, colIdx] of Object.entries(fieldMapping)) {
-          const value = row[colIdx as number]
-          if (value !== undefined && value !== null) {
-            if (field === 'quantity') {
-              item[field] = parseInt(String(value)) || 0
-            } else {
-              item[field] = String(value).trim()
+        // 尝试从所有列提取数据
+        for (let colIdx = 0; colIdx < row.length; colIdx++) {
+          const value = row[colIdx]
+          if (value === null || value === undefined) continue
+
+          const valueStr = String(value).trim()
+          if (!valueStr) continue
+
+          // 根据列索引映射字段
+          for (const [field, mappedIdx] of Object.entries(fieldMapping)) {
+            if (mappedIdx === colIdx) {
+              if (field === 'quantity') {
+                const num = parseInt(valueStr)
+                if (!isNaN(num)) {
+                  item[field] = num
+                }
+              } else {
+                item[field] = valueStr
+              }
             }
           }
         }
 
+        // 如果有SKU编码或名称，添加到结果
         if (item.skuCode || item.skuName) {
+          // 确保数量有默认值
+          if (!item.quantity || item.quantity === 0) {
+            item.quantity = 1
+          }
           parsedData.push(item)
+        } else {
+          // 如果没有识别到字段，尝试从整行提取数据
+          const extracted = extractDataFromRow(row)
+          if (extracted) {
+            parsedData.push(extracted)
+          }
         }
       }
+    }
+
+    // 如果没有解析到数据，尝试更宽松的解析
+    if (parsedData.length === 0) {
+      return parseExcelFallback(buffer)
     }
 
     return {
@@ -86,12 +125,101 @@ function parseExcel(buffer: ArrayBuffer) {
       message: `智能解析完成，共 ${parsedData.length} 条数据`
     }
   } catch (error: any) {
+    console.error('Excel解析错误:', error)
     return {
       success: false,
       error: 'Excel解析失败',
       details: error.message
     }
   }
+}
+
+// 更宽松的Excel解析（备用方案）
+function parseExcelFallback(buffer: ArrayBuffer) {
+  try {
+    const workbook = XLSX.read(buffer, { type: 'array' })
+    const parsedData: any[] = []
+
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName]
+      const data = XLSX.utils.sheet_to_json(sheet, { 
+        header: 1,
+        defval: '',
+        blankrows: false
+      }) as string[][]
+
+      // 跳过前几行（可能是标题）
+      const startRow = Math.min(5, data.length - 1)
+      
+      for (let i = startRow; i < data.length; i++) {
+        const row = data[i]
+        if (!row) continue
+
+        const rowStr = row.join('').trim()
+        if (!rowStr) continue
+        if (rowStr.includes('合计') || rowStr.includes('总计')) continue
+
+        // 尝试提取数据
+        const extracted = extractDataFromRow(row)
+        if (extracted) {
+          parsedData.push(extracted)
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: parsedData,
+      total: parsedData.length,
+      parseMode: 'smart-fallback',
+      message: `备用解析完成，共 ${parsedData.length} 条数据`
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      error: 'Excel解析失败',
+      details: error.message
+    }
+  }
+}
+
+// 从行数据中提取信息
+function extractDataFromRow(row: any[]): any | null {
+  if (!row || row.length === 0) return null
+
+  let skuCode = ''
+  let skuName = ''
+  let quantity = 1
+
+  for (const cell of row) {
+    if (!cell) continue
+    const value = String(cell).trim()
+    if (!value) continue
+
+    // 尝试识别SKU编码（通常是有字母数字组合）
+    if (!skuCode && /[A-Z]{2,}[0-9]/.test(value)) {
+      skuCode = value
+    }
+    
+    // 尝试识别数量（纯数字，且在合理范围内）
+    const num = parseInt(value)
+    if (!isNaN(num) && num > 0 && num < 10000 && value.match(/^\d+$/)) {
+      quantity = num
+    }
+
+    // 尝试识别名称（较长的文本）
+    if (value.length > 3 && value.length < 100 && !/^\d+$/.test(value)) {
+      if (!skuName || value.length > skuName.length) {
+        skuName = value
+      }
+    }
+  }
+
+  if (skuCode || skuName) {
+    return { skuCode, skuName, quantity }
+  }
+
+  return null
 }
 
 // 智能解析PDF
