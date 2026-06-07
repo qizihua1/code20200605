@@ -50,9 +50,10 @@ function parseExcel(buffer: ArrayBuffer) {
 
       // 尝试多种解析策略，按优先级排序
       const strategies = [
+        { name: '卡片式解析', fn: () => parseWithCardStyle(data) },
         { name: '表头检测解析', fn: () => parseWithHeaderDetection(data) },
-        { name: '宽松匹配解析', fn: () => parseWithLooseMatching(data) },
         { name: '矩阵检测解析', fn: () => parseWithMatrixDetection(data) },
+        { name: '宽松匹配解析', fn: () => parseWithLooseMatching(data) },
         { name: '简单提取解析', fn: () => parseWithSimpleExtraction(data) }
       ]
 
@@ -99,6 +100,101 @@ function parseExcel(buffer: ArrayBuffer) {
       details: error.message
     }
   }
+}
+
+// 策略0: 卡片式解析（支持门店调拨单等卡片式布局）
+function parseWithCardStyle(data: string[][]): any[] {
+  const result: any[] = []
+  
+  // 检测是否是卡片式布局（查找"调拨记录"、"调拨单"等关键词）
+  const firstRowStr = (data[0] || []).join('')
+  if (!firstRowStr.includes('调拨') && !firstRowStr.includes('卡片')) {
+    return []
+  }
+  
+  console.log('检测到卡片式布局')
+  
+  // 查找所有卡片块
+  let currentCard: any = null
+  
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i]
+    if (!row) continue
+    
+    const rowStr = row.join('')
+    
+    // 检测新卡片开始（调拨记录 #N）
+    if (rowStr.includes('调拨记录') || rowStr.includes('▶')) {
+      currentCard = {}
+      continue
+    }
+    
+    // 检测表头行（物品编码、物品名称等）
+    if (rowStr.includes('物品编码') || rowStr.includes('物品名称')) {
+      // 找到表头，从下一行开始解析物品明细
+      for (let j = i + 1; j < data.length; j++) {
+        const itemRow = data[j]
+        if (!itemRow) break
+        
+        const itemStr = itemRow.join('')
+        if (!itemStr.trim()) break
+        if (itemStr.includes('调拨记录') || itemStr.includes('▶')) {
+          i = j - 1  // 回退到新卡片开始位置
+          break
+        }
+        
+        // 提取物品信息
+        const item: any = {
+          ...currentCard,
+          skuCode: itemRow[0]?.trim() || '',
+          skuName: itemRow[1]?.trim() || '',
+          specification: itemRow[2]?.trim() || '',
+          quantity: parseInt(itemRow[3]?.trim()) || 1
+        }
+        
+        if (item.skuCode || item.skuName) {
+          result.push(item)
+        }
+      }
+      continue
+    }
+    
+    // 提取卡片头部信息（调入门店、收货人、电话、地址）
+    if (currentCard) {
+      // 查找门店信息
+      for (const cell of row) {
+        if (!cell) continue
+        const cellStr = cell.trim()
+        
+        // 检测门店名称
+        if (cellStr.includes('调入门店') || cellStr.includes('门店')) {
+          const nextCell = row[row.indexOf(cell) + 1]
+          if (nextCell) currentCard.storeName = nextCell.trim()
+        }
+        
+        // 检测收货人
+        if (cellStr.includes('收货人') || cellStr.includes('联系人')) {
+          const nextCell = row[row.indexOf(cell) + 1]
+          if (nextCell) currentCard.recipientName = nextCell.trim()
+        }
+        
+        // 检测电话
+        if (cellStr.includes('电话') || cellStr.includes('手机')) {
+          const nextCell = row[row.indexOf(cell) + 1]
+          if (nextCell) currentCard.recipientPhone = nextCell.trim()
+        }
+        
+        // 检测地址
+        if (cellStr.includes('地址') || cellStr.includes('收货地址')) {
+          const nextCell = row[row.indexOf(cell) + 1]
+          if (nextCell) currentCard.recipientAddress = nextCell.trim()
+        }
+      }
+    }
+  }
+  
+  console.log(`卡片式解析完成，共 ${result.length} 条数据`)
+  return result
 }
 
 // 策略1: 表头检测解析
@@ -249,40 +345,85 @@ function parseWithMatrixDetection(data: string[][]): any[] {
   // 检测是否是矩阵格式（门店作为列头）
   if (data.length < 3) return []
   
-  // 假设第一行是标题，第二行是门店名，第三行开始是数据
-  const headerRow = data[1] || []
-  const storeNames: string[] = []
+  // 尝试在第1行或第2行查找门店列
+  let headerRowIndex = 0
+  let headerRow: string[] = []
+  let storeNames: string[] = []
   
-  for (let j = 0; j < headerRow.length; j++) {
-    const cell = headerRow[j]
-    if (cell && cell.trim() && !cell.includes('编码') && !cell.includes('名称')) {
-      storeNames.push(cell.trim())
+  // 先检查第1行
+  const firstRow = data[0] || []
+  const firstRowStr = firstRow.join('')
+  
+  // 检查是否包含门店关键词
+  const storeKeywords = ['银泰', '金桥', '金银潭', '门店', '店', '仓', '仓库']
+  let hasStoreColumns = false
+  
+  for (const cell of firstRow) {
+    if (!cell) continue
+    const cellStr = cell.trim()
+    for (const keyword of storeKeywords) {
+      if (cellStr.includes(keyword) && !cellStr.includes('名称') && !cellStr.includes('编码')) {
+        hasStoreColumns = true
+        storeNames.push(cellStr)
+        break
+      }
     }
   }
-
-  console.log(`检测到门店列: ${storeNames.length}个`)
+  
+  if (hasStoreColumns && storeNames.length >= 2) {
+    // 第1行包含门店列
+    headerRowIndex = 0
+    headerRow = firstRow
+    console.log(`第1行检测到门店列: ${storeNames.length}个`)
+  } else {
+    // 检查第2行
+    const secondRow = data[1] || []
+    for (const cell of secondRow) {
+      if (!cell) continue
+      const cellStr = cell.trim()
+      for (const keyword of storeKeywords) {
+        if (cellStr.includes(keyword) && !cellStr.includes('名称') && !cellStr.includes('编码')) {
+          hasStoreColumns = true
+          storeNames.push(cellStr)
+          break
+        }
+      }
+    }
+    
+    if (hasStoreColumns && storeNames.length >= 2) {
+      headerRowIndex = 1
+      headerRow = secondRow
+      console.log(`第2行检测到门店列: ${storeNames.length}个`)
+    }
+  }
   
   if (storeNames.length === 0) return []
-
+  
   // 找到SKU编码和名称列
   let skuCodeCol = -1
   let skuNameCol = -1
+  let qtyCol = -1
   
   for (let j = 0; j < headerRow.length; j++) {
     const cell = headerRow[j] || ''
-    if (cell.includes('编码') || cell.includes('编号')) {
+    if (cell.includes('条码') || cell.includes('SKU编码') || cell.includes('编码')) {
       skuCodeCol = j
-    } else if (cell.includes('名称') || cell.includes('品名')) {
+    } else if (cell.includes('SKU名称') || cell.includes('名称') || cell.includes('品名')) {
       skuNameCol = j
+    } else if (cell.includes('数量') || cell.includes('Qty') || cell.includes('在库')) {
+      qtyCol = j
     }
   }
 
-  // 如果没有找到，使用前两列
-  if (skuCodeCol === -1) skuCodeCol = 0
-  if (skuNameCol === -1) skuNameCol = 1
+  // 如果没有找到，使用默认列
+  if (skuCodeCol === -1) skuCodeCol = 3  // 欢乐牧场模板中，条码在第4列（D列）
+  if (skuNameCol === -1) skuNameCol = 2  // 名称在第3列（C列）
+  
+  console.log(`SKU编码列: ${skuCodeCol}, SKU名称列: ${skuNameCol}`)
 
   // 解析数据行
-  for (let i = 2; i < data.length; i++) {
+  const dataStartRow = headerRowIndex + 1
+  for (let i = dataStartRow; i < data.length; i++) {
     const row = data[i]
     if (!row) continue
 
@@ -300,6 +441,7 @@ function parseWithMatrixDetection(data: string[][]): any[] {
       const cell = headerRow[j] || ''
       const storeName = cell.trim()
       
+      // 只处理门店列
       if (!storeNames.includes(storeName)) continue
 
       const qtyStr = row[j]?.trim() || ''
@@ -316,6 +458,7 @@ function parseWithMatrixDetection(data: string[][]): any[] {
     }
   }
 
+  console.log(`矩阵检测解析完成，共 ${result.length} 条数据`)
   return result
 }
 
@@ -341,13 +484,58 @@ function parseWithSimpleExtraction(data: string[][]): any[] {
   return result
 }
 
-// 智能检测表头行
+// 智能检测表头行（支持复杂表单格式）
 function detectHeaderRow(data: string[][]): number {
   const keywords = [
     '编码', '编号', 'SKU', '名称', '数量', '规格', '门店',
-    '收货', '电话', '地址', '单价', '金额', '日期', '单号', '序号'
+    '收货', '电话', '地址', '单价', '金额', '日期', '单号', '序号',
+    '物品编码', '物品名称', '物品分类', '物品品牌', '规格型号'
   ]
 
+  // 检测是否是复杂表单格式（配送发货单、出库单等）
+  // 特点：第1行包含"发货单"、"出库单"、"调拨单"等关键词
+  const firstRowStr = (data[0] || []).join('')
+  const isComplexForm = firstRowStr.includes('发货单') || 
+                        firstRowStr.includes('出库单') || 
+                        firstRowStr.includes('配送单') ||
+                        firstRowStr.includes('调拨单')
+  
+  if (isComplexForm) {
+    console.log('检测到复杂表单格式，从第4行开始查找表头')
+    // 复杂表单格式，表头通常在第3-5行
+    for (let i = 3; i < Math.min(6, data.length); i++) {
+      const row = data[i]
+      if (!row || row.length === 0) continue
+      
+      let score = 0
+      const rowStr = row.join('')
+      
+      // 检查是否包含表头关键词
+      for (const keyword of keywords) {
+        if (rowStr.includes(keyword)) {
+          score += 2
+        }
+      }
+      
+      // 有序号列加分
+      if (rowStr.includes('序号') || rowStr.includes('NO') || rowStr.includes('No')) {
+        score += 3
+      }
+      
+      // 列数较多（复杂表单通常有很多列）
+      if (row.length >= 10) {
+        score += 5
+      }
+      
+      console.log(`第${i}行得分: ${score}, 列数: ${row.length}, 内容: ${rowStr.substring(0, 100)}`)
+      
+      if (score >= 10) {
+        return i
+      }
+    }
+  }
+
+  // 标准格式，从第0行开始查找
   let bestRow = 0
   let bestScore = 0
 
