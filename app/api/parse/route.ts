@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
 
     // 方式1: 智能解析（不需要规则）
     if (parseMode === 'smart' || (!parseMode && !ruleId)) {
-      const result = smartParse(bytes, fileName)
+      const result = await smartParse(bytes, fileName)
       return NextResponse.json(result)
     }
 
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 默认：智能解析
-    const defaultResult = smartParse(bytes, fileName)
+    const defaultResult = await smartParse(bytes, fileName)
     return NextResponse.json(defaultResult)
   } catch (error: any) {
     console.error('解析错误:', error)
