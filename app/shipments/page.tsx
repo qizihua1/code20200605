@@ -11,6 +11,7 @@ export default function ShipmentsPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [deletingAll, setDeletingAll] = useState(false)
 
   useEffect(() => {
     fetchShipments()
@@ -57,6 +58,33 @@ export default function ShipmentsPage() {
     }
   }
 
+  const handleDeleteAll = async () => {
+    if (!confirm('确定要删除所有运单吗？此操作不可恢复！')) return
+    
+    setDeletingAll(true)
+    try {
+      const res = await fetch('/api/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      })
+      
+      if (res.ok) {
+        const result = await res.json()
+        alert(result.message)
+        setPage(1)
+        fetchShipments()
+      } else {
+        alert('删除失败')
+      }
+    } catch (error) {
+      console.error('Delete all error:', error)
+      alert('删除失败')
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-teal-50 p-8">
       <div className="max-w-6xl mx-auto">
@@ -87,7 +115,18 @@ export default function ShipmentsPage() {
 
         {/* 运单列表 */}
         <div className="bg-white rounded-xl shadow-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">运单列表 (共 {total} 条)</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">运单列表 (共 {total} 条)</h2>
+            {total > 0 && (
+              <button
+                onClick={handleDeleteAll}
+                disabled={deletingAll}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {deletingAll ? '删除中...' : '全部删除'}
+              </button>
+            )}
+          </div>
           
           {loading ? (
             <div className="text-center py-8 text-gray-500">加载中...</div>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import * as XLSX from 'xlsx'
 import mammoth from 'mammoth'
-import pdfParse from 'pdf-parse'
+import * as pdfParse from 'pdf-parse'
 
 const prisma = new PrismaClient()
 
@@ -107,34 +107,128 @@ function smartParseExcel(buffer: ArrayBuffer) {
   const parsedData: any[] = []
   
   for (const sheetName of workbook.SheetNames) {
+    console.log('Processing sheet:', sheetName)
     const sheet = workbook.Sheets[sheetName]
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
     
     if (data.length < 2) continue
     
-    const headerRowIdx = findHeaderRow(data)
-    const headerRow = data[headerRowIdx]
-    const fieldMapping = mapColumnsToFields(headerRow)
+    console.log('Sheet data rows:', data.length)
     
-    const hasKeyFields = fieldMapping.skuCode !== undefined || fieldMapping.skuName !== undefined
-    
-    if (!hasKeyFields) {
-      // 如果找不到关键字段，尝试从附近的行
-      for (let tryRow = Math.max(0, headerRowIdx - 3); tryRow < Math.min(headerRowIdx + 3, data.length); tryRow++) {
-        const tryHeaderRow = data[tryRow]
-        const tryMapping = mapColumnsToFields(tryHeaderRow)
-        if (tryMapping.skuCode !== undefined || tryMapping.skuName !== undefined) {
-          parseExcelFromRow(data, tryRow, tryMapping, parsedData)
-          break
-        }
-      }
-      continue
+    // 策略1: 标准表格格式查找
+    let success = tryParseStandardTable(data, parsedData)
+    if (!success) {
+      // 策略2: 尝试从非标准格式中查找
+      console.log('Trying alternative parse strategy...')
+      success = tryParseAlternativeFormat(data, parsedData)
     }
-    
-    parseExcelFromRow(data, headerRowIdx, fieldMapping, parsedData)
+    if (!success) {
+      // 策略3: 最宽松的查找，任何包含文本和数量的行
+      console.log('Trying last resort parse strategy...')
+      tryParseLastResort(data, parsedData)
+    }
   }
   
+  console.log('Total parsed items:', parsedData.length)
   return parsedData
+}
+
+function tryParseStandardTable(data: any[][], result: any[]) {
+  const headerRowIdx = findHeaderRow(data)
+  const headerRow = data[headerRowIdx]
+  const fieldMapping = mapColumnsToFields(headerRow)
+  
+  console.log('Header row found at:', headerRowIdx)
+  console.log('Field mapping:', fieldMapping)
+  
+  const hasKeyFields = fieldMapping.skuCode !== undefined || fieldMapping.skuName !== undefined
+  
+  if (!hasKeyFields) {
+    // 如果找不到关键字段，尝试从附近的行
+    for (let tryRow = Math.max(0, headerRowIdx - 3); tryRow < Math.min(headerRowIdx + 4, data.length); tryRow++) {
+      const tryHeaderRow = data[tryRow]
+      const tryMapping = mapColumnsToFields(tryHeaderRow)
+      if (tryMapping.skuCode !== undefined || tryMapping.skuName !== undefined) {
+        parseExcelFromRow(data, tryRow, tryMapping, result)
+        return true
+      }
+    }
+    return false
+  }
+  
+  parseExcelFromRow(data, headerRowIdx, fieldMapping, result)
+  return true
+}
+
+function tryParseAlternativeFormat(data: any[][], result: any[]) {
+  let found = false
+  
+  // 尝试更广泛地查找可能的数据行
+  for (let startRow = 0; startRow < Math.min(20, data.length); startRow++) {
+    const row = data[startRow]
+    const rowStr = row.map(c => String(c || '')).join(' ')
+    
+    // 跳过明显不是数据行的行
+    if (rowStr.length < 5) continue
+    if (rowStr.includes('合计') || rowStr.includes('总计')) continue
+    
+    // 尝试从这行开始解析
+    const mapping = mapColumnsToFields(row)
+    if (mapping.skuCode !== undefined || mapping.skuName !== undefined) {
+      parseExcelFromRow(data, startRow, mapping, result)
+      found = true
+    }
+  }
+  
+  return found
+}
+
+function tryParseLastResort(data: any[][], result: any[]) {
+  // 最宽松的解析：寻找任何看起来像数据的行
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i]
+    const rowStr = row.map(c => String(c || '')).join(' ')
+    
+    if (rowStr.length < 10) continue
+    if (rowStr.includes('合计') || rowStr.includes('总计')) continue
+    if (rowStr.includes('配送单') || rowStr.includes('发货单')) continue
+    
+    // 尝试找出这行里的数字作为数量
+    let quantity = 1
+    let skuName = ''
+    let skuCode = ''
+    
+    for (const cell of row) {
+      const cellStr = String(cell || '').trim()
+      if (!cellStr) continue
+      
+      // 尝试找出数量
+      const num = parseInt(cellStr)
+      if (!isNaN(num) && num > 0 && num < 10000) {
+        if (cellStr.length <= 6) { // 看起来像数量
+          quantity = num
+        }
+      } else if (cellStr.length >= 3 && cellStr.length <= 30) {
+        // 可能是SKU编码（不长不短的字符串）
+        if (/^[A-Za-z0-9\-_]+$/.test(cellStr) && !skuCode) {
+          skuCode = cellStr
+        } else if (!skuName) {
+          skuName = cellStr
+        }
+      } else if (cellStr.length > 2 && !skuName) {
+        skuName = cellStr
+      }
+    }
+    
+    // 如果找到足够的信息，添加一条
+    if (skuName || skuCode) {
+      result.push({
+        skuCode: skuCode,
+        skuName: skuName || skuCode,
+        quantity: quantity
+      })
+    }
+  }
 }
 
 function parseExcelFromRow(data: any[][], headerRowIdx: number, fieldMapping: Record<string, number>, result: any[]) {
@@ -190,7 +284,7 @@ async function smartParsePDF(buffer: ArrayBuffer) {
     
     // 将ArrayBuffer转换为Buffer
     const bufferObj = Buffer.from(buffer)
-    const data = await pdfParse(bufferObj)
+    const data = await (pdfParse as any)(bufferObj)
     
     console.log('PDF parsed successfully')
     console.log('Number of pages:', data.numpages)
