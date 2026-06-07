@@ -534,14 +534,13 @@ export function parseWithRule(buffer: ArrayBuffer, rule: any) {
         const item: any = {}
 
         for (const [field, colIdx] of Object.entries(colIndexMap)) {
-          let value = row[colIdx as number]
-          if (value && value.trim()) {
+          const rawValue = row[colIdx as number]
+          if (rawValue && rawValue.trim()) {
             if (field === 'quantity') {
-              value = parseInt(value.trim()) || 0
+              item[field] = parseInt(rawValue.trim()) || 0
             } else {
-              value = value.trim()
+              item[field] = rawValue.trim()
             }
-            item[field] = value
           }
         }
 
