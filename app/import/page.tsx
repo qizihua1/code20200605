@@ -149,13 +149,20 @@ export default function ImportPage() {
       setProgress(60)
       
       const result = await res.json()
-
+      
+      console.log('API响应:', result)
+      
       if (result.error) {
         toast.error(result.error)
+        console.error('API错误:', result.error, result.details)
         return
       }
 
-      const { valid, errors: validationErrors } = validateData(result.data || [])
+      // 检查返回的数据
+      const dataArray = result.data || []
+      console.log('解析到的数据:', dataArray.length, '条')
+      
+      const { valid, errors: validationErrors } = validateData(dataArray)
       setParsedData(valid)
       setErrors(validationErrors)
       
@@ -169,14 +176,15 @@ export default function ImportPage() {
       setShowPreview(true)
       setProgress(100)
       
-      const successMsg = `解析完成！共 ${(result.data || []).length} 条数据${
+      const successMsg = `解析完成！共 ${dataArray.length} 条数据${
         validationErrors.length > 0 ? `，发现 ${validationErrors.length} 个错误` : ''
       }${
         result.duplicateWarnings?.length > 0 ? `，${result.duplicateWarnings.length} 条重复提醒` : ''
       }`
       toast.success(successMsg)
-    } catch (error) {
-      toast.error('解析失败')
+    } catch (error: any) {
+      console.error('解析失败:', error)
+      toast.error('解析失败: ' + (error.message || '未知错误'))
     } finally {
       setParsing(false)
       setProgress(0)
