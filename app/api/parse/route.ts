@@ -109,18 +109,28 @@ function smartParseExcel(buffer: ArrayBuffer) {
   for (const sheetName of workbook.SheetNames) {
     console.log('Processing sheet:', sheetName)
     const sheet = workbook.Sheets[sheetName]
-    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
+    
+    // 使用range来读取完整的表格范围
+    const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1')
+    console.log('Sheet range:', sheet['!ref'])
+    
+    // 转换为二维数组，确保读取所有列
+    const data = XLSX.utils.sheet_to_json(sheet, { 
+      header: 1,
+      defval: null,
+      blankrows: false
+    }) as any[][]
     
     if (data.length < 2) continue
     
-    console.log('Sheet data rows:', data.length)
+    console.log('Sheet data rows:', data.length, 'cols:', range.e.c + 1)
     
     // 策略1: 标准表格格式查找
-    let success = tryParseStandardTable(data, parsedData)
+    let success = tryParseStandardTable(data, parsedData, sheetName)
     if (!success) {
       // 策略2: 尝试从非标准格式中查找
       console.log('Trying alternative parse strategy...')
-      success = tryParseAlternativeFormat(data, parsedData)
+      success = tryParseAlternativeFormat(data, parsedData, sheetName)
     }
     if (!success) {
       // 策略3: 最宽松的查找，任何包含文本和数量的行
@@ -133,13 +143,14 @@ function smartParseExcel(buffer: ArrayBuffer) {
   return parsedData
 }
 
-function tryParseStandardTable(data: any[][], result: any[]) {
+function tryParseStandardTable(data: any[][], result: any[], sheetName?: string) {
   const headerRowIdx = findHeaderRow(data)
   const headerRow = data[headerRowIdx]
   const fieldMapping = mapColumnsToFields(headerRow)
   
   console.log('Header row found at:', headerRowIdx)
   console.log('Field mapping:', fieldMapping)
+  console.log('Header row length:', headerRow.length)
   
   const hasKeyFields = fieldMapping.skuCode !== undefined || fieldMapping.skuName !== undefined
   
@@ -149,23 +160,25 @@ function tryParseStandardTable(data: any[][], result: any[]) {
       const tryHeaderRow = data[tryRow]
       const tryMapping = mapColumnsToFields(tryHeaderRow)
       if (tryMapping.skuCode !== undefined || tryMapping.skuName !== undefined) {
-        parseExcelFromRow(data, tryRow, tryMapping, result)
+        parseExcelFromRow(data, tryRow, tryMapping, result, sheetName)
         return true
       }
     }
     return false
   }
   
-  parseExcelFromRow(data, headerRowIdx, fieldMapping, result)
+  parseExcelFromRow(data, headerRowIdx, fieldMapping, result, sheetName)
   return true
 }
 
-function tryParseAlternativeFormat(data: any[][], result: any[]) {
+function tryParseAlternativeFormat(data: any[][], result: any[], sheetName?: string) {
   let found = false
   
   // 尝试更广泛地查找可能的数据行
   for (let startRow = 0; startRow < Math.min(20, data.length); startRow++) {
     const row = data[startRow]
+    if (!row || row.length === 0) continue
+    
     const rowStr = row.map(c => String(c || '')).join(' ')
     
     // 跳过明显不是数据行的行
@@ -175,7 +188,7 @@ function tryParseAlternativeFormat(data: any[][], result: any[]) {
     // 尝试从这行开始解析
     const mapping = mapColumnsToFields(row)
     if (mapping.skuCode !== undefined || mapping.skuName !== undefined) {
-      parseExcelFromRow(data, startRow, mapping, result)
+      parseExcelFromRow(data, startRow, mapping, result, sheetName)
       found = true
     }
   }
@@ -187,6 +200,8 @@ function tryParseLastResort(data: any[][], result: any[]) {
   // 最宽松的解析：寻找任何看起来像数据的行
   for (let i = 0; i < data.length; i++) {
     const row = data[i]
+    if (!row || row.length === 0) continue
+    
     const rowStr = row.map(c => String(c || '')).join(' ')
     
     if (rowStr.length < 10) continue
@@ -231,7 +246,7 @@ function tryParseLastResort(data: any[][], result: any[]) {
   }
 }
 
-function parseExcelFromRow(data: any[][], headerRowIdx: number, fieldMapping: Record<string, number>, result: any[]) {
+function parseExcelFromRow(data: any[][], headerRowIdx: number, fieldMapping: Record<string, number>, result: any[], sheetName?: string) {
   const dataStartRow = headerRowIdx + 1
   
   for (let i = dataStartRow; i < data.length; i++) {
