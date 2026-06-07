@@ -48,20 +48,30 @@ function parseExcel(buffer: ArrayBuffer) {
 
       if (data.length < 2) continue
 
-      // 尝试多种解析策略
+      // 尝试多种解析策略，按优先级排序
       const strategies = [
-        () => parseWithHeaderDetection(data),
-        () => parseWithLooseMatching(data),
-        () => parseWithMatrixDetection(data),
-        () => parseWithSimpleExtraction(data)
+        { name: '表头检测解析', fn: () => parseWithHeaderDetection(data) },
+        { name: '宽松匹配解析', fn: () => parseWithLooseMatching(data) },
+        { name: '矩阵检测解析', fn: () => parseWithMatrixDetection(data) },
+        { name: '简单提取解析', fn: () => parseWithSimpleExtraction(data) }
       ]
 
+      let foundStrategy = false
       for (const strategy of strategies) {
-        const result = strategy()
+        const result = strategy.fn()
+        console.log(`${strategy.name}: 解析到 ${result.length} 条数据`)
         if (result.length > 0) {
           parsedData.push(...result)
-          console.log(`策略成功，解析到 ${result.length} 条数据`)
+          foundStrategy = true
           break
+        }
+      }
+
+      // 如果所有策略都失败，输出前几行数据用于调试
+      if (!foundStrategy && parsedData.length === 0) {
+        console.log('所有策略都未成功，输出前5行数据用于调试:')
+        for (let i = 0; i < Math.min(5, data.length); i++) {
+          console.log(`行${i}:`, data[i]?.slice(0, 10))
         }
       }
     }
@@ -145,9 +155,23 @@ function parseWithHeaderDetection(data: string[][]): any[] {
       }
     }
 
-    if (hasData && (item.skuCode || item.skuName)) {
-      if (!item.quantity) item.quantity = 1
-      result.push(item)
+    if (hasData) {
+      // 如果没有检测到 skuCode 或 skuName，尝试从其他字段推断
+      if (!item.skuCode && !item.skuName) {
+        // 使用 externalCode 作为备选
+        if (item.externalCode) {
+          item.skuCode = item.externalCode
+        }
+        // 或者使用 storeName
+        if (!item.skuCode && item.storeName) {
+          item.skuName = item.storeName
+        }
+      }
+      // 只要有任何有效数据就添加
+      if (item.skuCode || item.skuName || item.externalCode || item.storeName) {
+        if (!item.quantity) item.quantity = 1
+        result.push(item)
+      }
     }
   }
 
@@ -423,18 +447,21 @@ function findColumnWithPattern(data: string[][], pattern: RegExp, startRow: numb
   return bestCol
 }
 
-// 从行数据中提取信息
+// 从行数据中提取信息（更宽松的提取方式）
 function extractDataFromRow(row: string[]): any | null {
   if (!row || row.length === 0) return null
 
   let skuCode = ''
   let skuName = ''
   let quantity = 1
+  let hasAnyValue = false  // 标记是否有任何值
 
   for (const cell of row) {
     if (!cell) continue
     const value = cell.trim()
     if (!value) continue
+    
+    hasAnyValue = true  // 有值
 
     // 尝试识别SKU编码（字母+数字组合）
     if (!skuCode && /[A-Za-z]{2,}[0-9]/.test(value)) {
@@ -443,10 +470,12 @@ function extractDataFromRow(row: string[]): any | null {
       skuCode = value
     }
     
-    // 尝试识别数量
+    // 尝试识别数量（记录最大的数字）
     const num = parseInt(value)
     if (!isNaN(num) && num > 0 && num < 10000 && value.match(/^\d+$/)) {
-      quantity = num
+      if (num > quantity) {
+        quantity = num
+      }
     }
 
     // 尝试识别名称
@@ -457,7 +486,21 @@ function extractDataFromRow(row: string[]): any | null {
     }
   }
 
-  if (skuCode || skuName) {
+  // 放宽条件：只要有值就返回记录
+  if (hasAnyValue) {
+    // 如果没有识别到 skuCode，用第一个数字作为备选
+    if (!skuCode) {
+      // 查找第一个数字作为 skuCode
+      for (const cell of row) {
+        if (!cell) continue
+        const value = cell.trim()
+        const num = parseInt(value)
+        if (!isNaN(num) && num > 0) {
+          skuCode = value
+          break
+        }
+      }
+    }
     return { skuCode, skuName, quantity }
   }
 
