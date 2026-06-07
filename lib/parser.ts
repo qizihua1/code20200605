@@ -3,14 +3,14 @@ import mammoth from 'mammoth'
 import * as pdfParse from 'pdf-parse'
 
 // ========== 智能解析（不需要规则，直接解析）==========
-export function smartParse(buffer: ArrayBuffer, fileName: string) {
+export async function smartParse(buffer: ArrayBuffer, fileName: string) {
   try {
     const lowerFileName = fileName.toLowerCase()
     
     if (lowerFileName.endsWith('.pdf')) {
       return parsePDF(buffer)
     } else if (lowerFileName.endsWith('.docx') || lowerFileName.endsWith('.doc')) {
-      return parseWord(buffer)
+      return await parseWord(buffer)
     } else {
       return parseExcel(buffer)
     }
@@ -149,9 +149,9 @@ function parsePDF(buffer: ArrayBuffer) {
 }
 
 // 智能解析Word
-function parseWord(buffer: ArrayBuffer) {
+async function parseWord(buffer: ArrayBuffer) {
   try {
-    const { value } = mammoth.extractRawText({ arrayBuffer: buffer })
+    const { value } = await mammoth.extractRawText({ arrayBuffer: buffer })
     const lines = value.split('\n')
     const parsedData: any[] = []
 
