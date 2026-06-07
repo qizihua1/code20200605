@@ -1,6 +1,5 @@
 import * as XLSX from 'xlsx'
 import mammoth from 'mammoth'
-import * as pdfParse from 'pdf-parse'
 
 // ========== 智能解析（不需要规则，直接解析）==========
 export async function smartParse(buffer: ArrayBuffer, fileName: string) {
@@ -8,7 +7,12 @@ export async function smartParse(buffer: ArrayBuffer, fileName: string) {
     const lowerFileName = fileName.toLowerCase()
     
     if (lowerFileName.endsWith('.pdf')) {
-      return parsePDF(buffer)
+      // PDF暂不支持，返回友好提示
+      return {
+        success: false,
+        error: 'PDF解析暂未支持',
+        details: '请将PDF转换为Excel格式后再上传'
+      }
     } else if (lowerFileName.endsWith('.docx') || lowerFileName.endsWith('.doc')) {
       return await parseWord(buffer)
     } else {
@@ -222,60 +226,6 @@ function extractDataFromRow(row: any[]): any | null {
   return null
 }
 
-// 智能解析PDF
-function parsePDF(buffer: ArrayBuffer) {
-  try {
-    const bufferObj = Buffer.from(buffer)
-    const pdfData = (pdfParse as any)(bufferObj)
-    
-    if (typeof pdfData.then === 'function') {
-      // 如果是Promise，手动处理
-      return {
-        success: false,
-        error: 'PDF解析需要异步处理',
-        details: '请使用异步版本'
-      }
-    }
-    
-    const lines = pdfData.text.split('\n')
-    const parsedData: any[] = []
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed.length > 5 && !trimmed.includes('合计') && !trimmed.includes('总计')) {
-        let quantity = 1
-        const qtyMatch = trimmed.match(/\d+/)
-        if (qtyMatch) {
-          const num = parseInt(qtyMatch[0])
-          if (num > 0 && num < 10000) {
-            quantity = num
-          }
-        }
-
-        parsedData.push({
-          skuCode: '',
-          skuName: trimmed.substring(0, 100),
-          quantity
-        })
-      }
-    }
-
-    return {
-      success: true,
-      data: parsedData,
-      total: parsedData.length,
-      parseMode: 'smart',
-      message: `PDF解析完成，共 ${parsedData.length} 条数据`
-    }
-  } catch (error: any) {
-    return {
-      success: false,
-      error: 'PDF解析失败',
-      details: error.message
-    }
-  }
-}
-
 // 智能解析Word
 async function parseWord(buffer: ArrayBuffer) {
   try {
@@ -459,13 +409,9 @@ export async function analyzeAndSuggestRule(buffer: ArrayBuffer, fileName: strin
     let analysis: any = {}
 
     if (lowerFileName.endsWith('.pdf')) {
-      const bufferObj = Buffer.from(buffer)
-      const pdfData = await (pdfParse as any)(bufferObj)
       analysis = {
         type: 'pdf',
-        pages: pdfData.numpages,
-        textLength: pdfData.text.length,
-        sampleText: pdfData.text.substring(0, 1000)
+        note: 'PDF格式暂不支持解析，请转换为Excel格式'
       }
     } else if (lowerFileName.endsWith('.docx') || lowerFileName.endsWith('.doc')) {
       const { value } = await mammoth.extractRawText({ arrayBuffer: buffer })
