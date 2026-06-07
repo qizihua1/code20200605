@@ -291,7 +291,7 @@ async function smartParsePDF(buffer: ArrayBuffer) {
     console.log('Text length:', data.text.length)
     
     const allText = data.text
-    const lines = allText.split('\n').filter(line => line.trim())
+    const lines = allText.split('\n').filter((line: string) => line.trim())
     console.log('Number of lines:', lines.length)
     
     // 从文本中尝试提取表格数据
@@ -403,7 +403,7 @@ async function smartParseWord(buffer: ArrayBuffer) {
   try {
     const { value } = await mammoth.extractRawText({ arrayBuffer: buffer })
     const text = value
-    const lines = text.split('\n').filter(line => line.trim())
+    const lines = text.split('\n').filter((line: string) => line.trim())
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim()
