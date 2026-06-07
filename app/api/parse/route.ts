@@ -6,102 +6,245 @@ import * as pdfParse from 'pdf-parse'
 
 const prisma = new PrismaClient()
 
-// 模拟AI分析文件结构并生成规则
-export async function analyzeFileStructure(buffer: ArrayBuffer, fileName: string, fileType: 'excel' | 'pdf' | 'word') {
+// ========== 方式1: 智能解析（不需要规则，直接解析）==========
+export function smartParse(buffer: ArrayBuffer, fileName: string) {
   try {
-    let rawData: any = {}
-    let suggestions: any = {}
+    const lowerFileName = fileName.toLowerCase()
+    
+    if (lowerFileName.endsWith('.pdf')) {
+      return parsePDF(buffer)
+    } else if (lowerFileName.endsWith('.docx') || lowerFileName.endsWith('.doc')) {
+      return parseWord(buffer)
+    } else {
+      return parseExcel(buffer)
+    }
+  } catch (error: any) {
+    console.error('智能解析失败:', error)
+    return {
+      success: false,
+      error: '解析失败',
+      details: error.message
+    }
+  }
+}
 
-    if (fileType === 'excel') {
+// 智能解析Excel - 不需要规则
+function parseExcel(buffer: ArrayBuffer) {
+  try {
+    const workbook = XLSX.read(buffer, { type: 'array' })
+    const parsedData: any[] = []
+
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName]
+      const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
+
+      if (data.length < 2) continue
+
+      // 智能检测表头行
+      const headerRowIndex = detectHeaderRow(data)
+      const headers = data[headerRowIndex] || []
+
+      // 智能生成字段映射
+      const fieldMapping = generateFieldMapping(headers)
+
+      // 解析数据行
+      for (let i = headerRowIndex + 1; i < data.length; i++) {
+        const row = data[i]
+        if (!row || row.length === 0) continue
+
+        // 跳过空行
+        if (row.every(cell => !cell || String(cell).trim() === '')) {
+          continue
+        }
+
+        // 跳过合计行
+        const rowStr = row.map(c => String(c || '')).join('')
+        if (rowStr.includes('合计') || rowStr.includes('总计')) {
+          continue
+        }
+
+        const item: any = {}
+
+        for (const [field, colIdx] of Object.entries(fieldMapping)) {
+          const value = row[colIdx as number]
+          if (value !== undefined && value !== null) {
+            if (field === 'quantity') {
+              item[field] = parseInt(String(value)) || 0
+            } else {
+              item[field] = String(value).trim()
+            }
+          }
+        }
+
+        if (item.skuCode || item.skuName) {
+          parsedData.push(item)
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: parsedData,
+      total: parsedData.length,
+      parseMode: 'smart',
+      message: `智能解析完成，共 ${parsedData.length} 条数据`
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      error: 'Excel解析失败',
+      details: error.message
+    }
+  }
+}
+
+// 智能解析PDF
+function parsePDF(buffer: ArrayBuffer) {
+  try {
+    const bufferObj = Buffer.from(buffer)
+    const data = (pdfParse as any)(bufferObj).then((pdfData: any) => {
+      const lines = pdfData.text.split('\n')
+      const parsedData: any[] = []
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (trimmed.length > 5 && !trimmed.includes('合计') && !trimmed.includes('总计')) {
+          // 尝试提取数量
+          let quantity = 1
+          const qtyMatch = trimmed.match(/\d+/)
+          if (qtyMatch) {
+            const num = parseInt(qtyMatch[0])
+            if (num > 0 && num < 10000) {
+              quantity = num
+            }
+          }
+
+          parsedData.push({
+            skuCode: '',
+            skuName: trimmed.substring(0, 100),
+            quantity
+          })
+        }
+      }
+
+      return {
+        success: true,
+        data: parsedData,
+        total: parsedData.length,
+        parseMode: 'smart',
+        message: `PDF解析完成，共 ${parsedData.length} 条数据`
+      }
+    })
+
+    return data
+  } catch (error: any) {
+    return {
+      success: false,
+      error: 'PDF解析失败',
+      details: error.message
+    }
+  }
+}
+
+// 智能解析Word
+function parseWord(buffer: ArrayBuffer) {
+  try {
+    const { value } = mammoth.extractRawText({ arrayBuffer: buffer })
+    const lines = value.split('\n')
+    const parsedData: any[] = []
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed.length > 3) {
+        parsedData.push({
+          skuCode: '',
+          skuName: trimmed.substring(0, 100),
+          quantity: 1
+        })
+      }
+    }
+
+    return {
+      success: true,
+      data: parsedData,
+      total: parsedData.length,
+      parseMode: 'smart',
+      message: `Word解析完成，共 ${parsedData.length} 条数据`
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      error: 'Word解析失败',
+      details: error.message
+    }
+  }
+}
+
+// ========== 方式3: 模拟AI分析（生成推荐规则）==========
+export async function analyzeAndSuggestRule(buffer: ArrayBuffer, fileName: string) {
+  try {
+    const lowerFileName = fileName.toLowerCase()
+    let analysis: any = {}
+
+    if (lowerFileName.endsWith('.pdf')) {
+      const bufferObj = Buffer.from(buffer)
+      const pdfData = await (pdfParse as any)(bufferObj)
+      analysis = {
+        type: 'pdf',
+        pages: pdfData.numpages,
+        textLength: pdfData.text.length,
+        sampleText: pdfData.text.substring(0, 1000)
+      }
+    } else if (lowerFileName.endsWith('.docx') || lowerFileName.endsWith('.doc')) {
+      const { value } = await mammoth.extractRawText({ arrayBuffer: buffer })
+      analysis = {
+        type: 'word',
+        textLength: value.length,
+        sampleText: value.substring(0, 1000)
+      }
+    } else {
+      // Excel分析
       const workbook = XLSX.read(buffer, { type: 'array' })
       const sheet = workbook.Sheets[workbook.SheetNames[0]]
       const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
 
-      rawData = {
+      const headerRowIndex = detectHeaderRow(data)
+      const headers = data[headerRowIndex] || []
+      const fieldMappings = generateFieldMappingWithDetails(headers)
+
+      analysis = {
+        type: 'excel',
         sheetCount: workbook.SheetNames.length,
         sheetNames: workbook.SheetNames,
         totalRows: data.length,
         totalColumns: data[0]?.length || 0,
-        sampleRows: data.slice(0, 20)
-      }
-
-      // AI分析：智能检测表头行
-      const headerRowIndex = detectHeaderRow(data)
-      const headers = data[headerRowIndex] || []
-
-      // AI分析：检测数据结构
-      const dataStartRow = headerRowIndex + 1
-      const hasExternalCode = headers.some((h: any) => 
-        String(h || '').includes('单号') || 
-        String(h || '').includes('编号') || 
-        String(h || '').includes('订单')
-      )
-      const hasRecipient = headers.some((h: any) => 
-        String(h || '').includes('收货人') || 
-        String(h || '').includes('收件人') || 
-        String(h || '').includes('电话')
-      )
-
-      suggestions = {
-        recommendedHeaderRow: headerRowIndex,
-        recommendedDataStartRow: dataStartRow,
-        recommendedDataEndRow: data.length - 1,
-        hasExternalCode,
-        hasRecipient,
-        headerColumns: headers.slice(0, Math.min(20, headers.length)),
-        fieldMappings: generateFieldMappings(headers),
-        structure: {
-          type: 'standard', // standard | matrix | card | multi-sheet
-          multiSheet: workbook.SheetNames.length > 1,
-          mergedCells: false,
-          hasFooter: false
-        }
-      }
-    } else if (fileType === 'pdf') {
-      const bufferObj = Buffer.from(buffer)
-      const pdfData = await (pdfParse as any)(bufferObj)
-      rawData = {
-        pages: pdfData.numpages,
-        textLength: pdfData.text.length,
-        sampleText: pdfData.text.substring(0, 2000)
-      }
-      suggestions = {
-        structure: { type: 'pdf', pages: pdfData.numpages },
-        fieldMappings: []
-      }
-    } else if (fileType === 'word') {
-      const { value } = await mammoth.extractRawText({ arrayBuffer: buffer })
-      rawData = {
-        textLength: value.length,
-        sampleText: value.substring(0, 2000)
-      }
-      suggestions = {
-        structure: { type: 'word' },
-        fieldMappings: []
+        headerRow: headerRowIndex,
+        dataStartRow: headerRowIndex + 1,
+        headers: headers.slice(0, 30),
+        fieldMappings
       }
     }
 
     // 生成推荐规则
     const recommendedRule = {
-      name: `自动生成规则 - ${fileName}`,
-      description: '由AI分析文件结构自动生成的解析规则',
-      structure: suggestions.structure || {},
-      headerRow: suggestions.recommendedHeaderRow || 0,
-      dataStartRow: suggestions.recommendedDataStartRow || 1,
-      dataEndRow: suggestions.recommendedDataEndRow || -1,
-      fieldMappings: suggestions.fieldMappings || [],
-      confidence: 0.8,
-      isAutoGenerated: true
+      name: `推荐规则 - ${fileName}`,
+      description: '由系统智能分析生成的推荐规则',
+      structure: {
+        type: analysis.type,
+        headerRow: analysis.headerRow || 0,
+        dataStartRow: analysis.dataStartRow || 1,
+        dataEndRow: -1, // 到末尾
+        multiSheet: analysis.sheetCount > 1
+      },
+      fieldMappings: analysis.fieldMappings || []
     }
 
     return {
       success: true,
       fileName,
-      fileType,
-      rawData,
-      analysis: suggestions,
+      analysis,
       recommendedRule,
-      message: '文件结构分析完成，请确认或调整规则后进行解析'
+      message: '智能分析完成，请确认推荐规则或手动调整'
     }
   } catch (error: any) {
     console.error('AI分析失败:', error)
@@ -116,14 +259,13 @@ export async function analyzeFileStructure(buffer: ArrayBuffer, fileName: string
 // 智能检测表头行
 function detectHeaderRow(data: any[][]) {
   const keywords = [
-    '编码', '编号', 'SKU', '名称', '数量', '规格', '门店', 
+    '编码', '编号', 'SKU', '名称', '数量', '规格', '门店',
     '收货', '电话', '地址', '单价', '金额', '日期', '单号'
   ]
 
   let bestRow = 0
   let bestScore = 0
 
-  // 检测前20行
   for (let i = 0; i < Math.min(20, data.length); i++) {
     const row = data[i]
     if (!row || row.length === 0) continue
@@ -131,19 +273,16 @@ function detectHeaderRow(data: any[][]) {
     let score = 0
     const rowStr = row.map(c => String(c || '')).join('')
 
-    // 计算关键词匹配度
     for (const keyword of keywords) {
       if (rowStr.includes(keyword)) {
         score++
       }
     }
 
-    // 有序号列加分
-    if (rowStr.includes('序号') || rowStr.includes('NO') || rowStr.includes('No')) {
+    if (rowStr.includes('序号') || rowStr.includes('NO')) {
       score += 3
     }
 
-    // 行列较短（说明是标题行）
     if (row.length <= 50) {
       score += 1
     }
@@ -157,8 +296,43 @@ function detectHeaderRow(data: any[][]) {
   return bestRow
 }
 
-// 根据表头生成字段映射建议
-function generateFieldMappings(headers: any[]) {
+// 生成字段映射（简化版）
+function generateFieldMapping(headers: any[]) {
+  const mapping: Record<string, number> = {}
+  const fieldKeywords: Record<string, string[]> = {
+    externalCode: ['单号', '编号', '订单号', '配送单号', '出库单号'],
+    skuCode: ['编码', '编号', 'SKU', '条码', '货号'],
+    skuName: ['名称', '品名', '商品名称', '货品名称'],
+    quantity: ['数量', '件数', 'Qty', '发货数量'],
+    specification: ['规格', '规格型号', '型号', '单位'],
+    storeName: ['门店', '店铺', '收货门店', '仓库'],
+    recipientName: ['收货人', '收件人', '姓名', '联系人'],
+    recipientPhone: ['电话', '手机', '联系电话'],
+    recipientAddress: ['地址', '收货地址', '配送地址'],
+    remarks: ['备注', '说明']
+  }
+
+  headers.forEach((header, index) => {
+    const headerStr = String(header || '').trim()
+    if (!headerStr) return
+
+    for (const [field, keywords] of Object.entries(fieldKeywords)) {
+      for (const keyword of keywords) {
+        if (headerStr.includes(keyword) || headerStr === keyword) {
+          if (mapping[field] === undefined) {
+            mapping[field] = index
+          }
+          break
+        }
+      }
+    }
+  })
+
+  return mapping
+}
+
+// 生成字段映射（详细版，用于推荐规则）
+function generateFieldMappingWithDetails(headers: any[]) {
   const mappings: any[] = []
   const fieldKeywords: Record<string, string[]> = {
     externalCode: ['单号', '编号', '订单号', '配送单号', '出库单号'],
@@ -170,7 +344,7 @@ function generateFieldMappings(headers: any[]) {
     recipientName: ['收货人', '收件人', '姓名', '联系人'],
     recipientPhone: ['电话', '手机', '联系电话'],
     recipientAddress: ['地址', '收货地址', '配送地址'],
-    remarks: ['备注', '说明', '备注信息']
+    remarks: ['备注', '说明']
   }
 
   headers.forEach((header, index) => {
@@ -184,9 +358,7 @@ function generateFieldMappings(headers: any[]) {
             field,
             source: headerStr,
             columnIndex: index,
-            sourceType: 'column',
-            confidence: headerStr.includes(keyword) ? 0.9 : 0.7,
-            isAutoGenerated: true
+            sourceType: 'column'
           })
           break
         }
@@ -197,181 +369,124 @@ function generateFieldMappings(headers: any[]) {
   return mappings
 }
 
-// 使用规则解析文件
-export function parseWithRule(
-  buffer: ArrayBuffer, 
-  rule: {
-    headerRow: number
-    dataStartRow: number
-    dataEndRow: number
-    fieldMappings: any[]
-    structure: any
-  }
-) {
-  const workbook = XLSX.read(buffer, { type: 'array' })
-  const parsedData: any[] = []
+// ========== 方式2: 使用规则解析 ==========
+export function parseWithRule(buffer: ArrayBuffer, rule: any) {
+  try {
+    const workbook = XLSX.read(buffer, { type: 'array' })
+    const parsedData: any[] = []
 
-  for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName]
-    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName]
+      const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
 
-    // 如果是-1表示到末尾
-    const endRow = rule.dataEndRow === -1 ? data.length - 1 : rule.dataEndRow
+      const headerRow = rule.structure?.headerRow || 0
+      const dataStartRow = rule.structure?.dataStartRow || headerRow + 1
+      const dataEndRow = rule.structure?.dataEndRow === -1 ? data.length - 1 : (rule.structure?.dataEndRow || data.length - 1)
 
-    // 构建列索引映射
-    const colIndexMap: Record<string, number> = {}
-    for (const mapping of rule.fieldMappings) {
-      if (mapping.sourceType === 'column') {
-        // 优先使用列索引
-        if (mapping.columnIndex !== undefined) {
+      // 构建列索引映射
+      const colIndexMap: Record<string, number> = {}
+      for (const mapping of rule.fieldMappings || []) {
+        if (mapping.sourceType === 'column' && mapping.columnIndex !== undefined) {
           colIndexMap[mapping.field] = mapping.columnIndex
         }
-        // 否则通过列名查找
-        else if (mapping.source) {
-          const headerRow = data[rule.headerRow] || []
-          for (let i = 0; i < headerRow.length; i++) {
-            if (String(headerRow[i] || '').trim() === mapping.source) {
-              colIndexMap[mapping.field] = i
-              break
+      }
+
+      // 解析数据行
+      for (let i = dataStartRow; i <= dataEndRow && i < data.length; i++) {
+        const row = data[i]
+        if (!row) continue
+
+        if (row.every(cell => !cell || String(cell).trim() === '')) {
+          continue
+        }
+
+        const item: any = {}
+
+        for (const [field, colIdx] of Object.entries(colIndexMap)) {
+          let value = row[colIdx as number]
+          if (value !== undefined && value !== null) {
+            if (field === 'quantity') {
+              value = parseInt(String(value)) || 0
+            } else {
+              value = String(value).trim()
             }
+            item[field] = value
           }
         }
+
+        if (item.skuCode || item.skuName) {
+          parsedData.push(item)
+        }
       }
     }
 
-    // 解析数据行
-    for (let i = rule.dataStartRow; i <= endRow && i < data.length; i++) {
-      const row = data[i]
-      if (!row) continue
-
-      // 跳过空行
-      if (row.every(cell => !cell || String(cell).trim() === '')) {
-        continue
-      }
-
-      const item: any = {}
-
-      for (const [field, colIdx] of Object.entries(colIndexMap)) {
-        let value = row[colIdx as number]
-        if (value === undefined || value === null) continue
-
-        // 数量字段转换为数字
-        if (field === 'quantity') {
-          value = parseInt(String(value)) || 0
-        } else {
-          value = String(value).trim()
-        }
-
-        item[field] = value
-      }
-
-      // 只有包含SKU编码或名称的行才添加
-      if (item.skuCode || item.skuName) {
-        parsedData.push(item)
-      }
+    return {
+      success: true,
+      data: parsedData,
+      total: parsedData.length,
+      parseMode: 'rule',
+      message: `规则解析完成，共 ${parsedData.length} 条数据`
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      error: '规则解析失败',
+      details: error.message
     }
   }
-
-  return parsedData
 }
 
-// 解析API
+// ========== API路由 ==========
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
     const file = formData.get('file') as File | null
+    const parseMode = formData.get('parseMode') as string // smart | rule | analyze
     const ruleId = formData.get('ruleId') as string | null
-    const analyze = formData.get('analyze') as string | null
 
     if (!file) {
       return NextResponse.json({ error: '请上传文件' }, { status: 400 })
     }
 
     const bytes = await file.arrayBuffer()
-    const fileName = file.name.toLowerCase()
+    const fileName = file.name
 
-    // 判断文件类型
-    let fileType: 'excel' | 'pdf' | 'word' = 'excel'
-    if (fileName.endsWith('.pdf')) {
-      fileType = 'pdf'
-    } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
-      fileType = 'word'
+    // 方式1: 智能解析（不需要规则）
+    if (parseMode === 'smart' || (!parseMode && !ruleId)) {
+      const result = smartParse(bytes, fileName)
+      return NextResponse.json(result)
     }
 
-    // 如果需要分析文件结构（AI生成规则）
-    if (analyze === 'true') {
-      const analysis = await analyzeFileStructure(bytes, file.name, fileType)
-      return NextResponse.json(analysis)
+    // 方式3: 智能分析（生成推荐规则）
+    if (parseMode === 'analyze') {
+      const result = await analyzeAndSuggestRule(bytes, fileName)
+      return NextResponse.json(result)
     }
 
-    // 如果没有规则ID，返回分析结果
-    if (!ruleId) {
-      const analysis = await analyzeFileStructure(bytes, file.name, fileType)
-      return NextResponse.json(analysis)
-    }
+    // 方式2: 使用规则解析
+    if (ruleId) {
+      const rule = await prisma.parsingRule.findUnique({
+        where: { id: ruleId }
+      })
 
-    // 有规则ID，使用规则解析
-    const rule = await prisma.parsingRule.findUnique({
-      where: { id: ruleId }
-    })
-
-    if (!rule) {
-      return NextResponse.json({ error: '规则不存在' }, { status: 404 })
-    }
-
-    const ruleConfig = {
-      headerRow: 0,
-      dataStartRow: rule.structure?.dataStartRow || 1,
-      dataEndRow: rule.structure?.dataEndRow || -1,
-      fieldMappings: rule.fieldMappings || [],
-      structure: rule.structure || {}
-    }
-    let parsedData: any[] = []
-
-    if (fileType === 'excel') {
-      parsedData = parseWithRule(bytes, ruleConfig)
-    } else if (fileType === 'pdf') {
-      // PDF解析逻辑
-      const bufferObj = Buffer.from(bytes)
-      const pdfData = await (pdfParse as any)(bufferObj)
-      const lines = pdfData.text.split('\n')
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed.length > 10 && !trimmed.includes('合计') && !trimmed.includes('总计')) {
-          parsedData.push({
-            skuCode: '',
-            skuName: trimmed.substring(0, 100),
-            quantity: 1
-          })
-        }
+      if (!rule) {
+        return NextResponse.json({ error: '规则不存在' }, { status: 404 })
       }
-    } else if (fileType === 'word') {
-      // Word解析逻辑
-      const { value } = await mammoth.extractRawText({ arrayBuffer: bytes })
-      const lines = value.split('\n')
 
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed.length > 5) {
-          parsedData.push({
-            skuCode: '',
-            skuName: trimmed.substring(0, 100),
-            quantity: 1
-          })
-        }
-      }
+      const result = parseWithRule(bytes, {
+        structure: rule.structure as any,
+        fieldMappings: rule.fieldMappings as any[]
+      })
+      return NextResponse.json(result)
     }
 
-    return NextResponse.json({
-      success: true,
-      data: parsedData,
-      total: parsedData.length,
-      message: `成功解析 ${parsedData.length} 条数据`
-    })
+    // 默认：智能解析
+    const defaultResult = smartParse(bytes, fileName)
+    return NextResponse.json(defaultResult)
   } catch (error: any) {
     console.error('解析错误:', error)
     return NextResponse.json({
+      success: false,
       error: '解析失败',
       details: error.message
     }, { status: 500 })
