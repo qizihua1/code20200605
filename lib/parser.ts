@@ -102,12 +102,25 @@ function parseExcel(buffer: ArrayBuffer) {
   }
 }
 
+// 安全的字符串转换函数
+function safeString(value: any): string {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  return String(value)
+}
+
+// 安全的trim函数
+function safeTrim(value: any): string {
+  return safeString(value).trim()
+}
+
 // 策略0: 卡片式解析（支持门店调拨单等卡片式布局）
 function parseWithCardStyle(data: string[][]): any[] {
   const result: any[] = []
   
   // 检测是否是卡片式布局（查找"调拨记录"、"调拨单"等关键词）
-  const firstRowStr = (data[0] || []).join('')
+  const firstRowStr = (data[0] || []).map(cell => safeString(cell)).join('')
   if (!firstRowStr.includes('调拨') && !firstRowStr.includes('卡片')) {
     return []
   }
@@ -121,7 +134,7 @@ function parseWithCardStyle(data: string[][]): any[] {
     const row = data[i]
     if (!row) continue
     
-    const rowStr = row.join('')
+    const rowStr = row.map(cell => safeString(cell)).join('')
     
     // 检测新卡片开始（调拨记录 #N）
     if (rowStr.includes('调拨记录') || rowStr.includes('▶')) {
@@ -136,8 +149,8 @@ function parseWithCardStyle(data: string[][]): any[] {
         const itemRow = data[j]
         if (!itemRow) break
         
-        const itemStr = itemRow.join('')
-        if (!itemStr.trim()) break
+        const itemStr = itemRow.map(cell => safeString(cell)).join('')
+        if (!safeTrim(itemStr)) break
         if (itemStr.includes('调拨记录') || itemStr.includes('▶')) {
           i = j - 1  // 回退到新卡片开始位置
           break
@@ -146,10 +159,10 @@ function parseWithCardStyle(data: string[][]): any[] {
         // 提取物品信息
         const item: any = {
           ...currentCard,
-          skuCode: itemRow[0]?.trim() || '',
-          skuName: itemRow[1]?.trim() || '',
-          specification: itemRow[2]?.trim() || '',
-          quantity: parseInt(itemRow[3]?.trim()) || 1
+          skuCode: safeTrim(itemRow[0]),
+          skuName: safeTrim(itemRow[1]),
+          specification: safeTrim(itemRow[2]),
+          quantity: parseInt(safeTrim(itemRow[3])) || 1
         }
         
         if (item.skuCode || item.skuName) {
@@ -162,32 +175,33 @@ function parseWithCardStyle(data: string[][]): any[] {
     // 提取卡片头部信息（调入门店、收货人、电话、地址）
     if (currentCard) {
       // 查找门店信息
-      for (const cell of row) {
+      for (let idx = 0; idx < row.length; idx++) {
+        const cell = row[idx]
         if (!cell) continue
-        const cellStr = cell.trim()
+        const cellStr = safeTrim(cell)
         
         // 检测门店名称
         if (cellStr.includes('调入门店') || cellStr.includes('门店')) {
-          const nextCell = row[row.indexOf(cell) + 1]
-          if (nextCell) currentCard.storeName = nextCell.trim()
+          const nextCell = row[idx + 1]
+          if (nextCell) currentCard.storeName = safeTrim(nextCell)
         }
         
         // 检测收货人
         if (cellStr.includes('收货人') || cellStr.includes('联系人')) {
-          const nextCell = row[row.indexOf(cell) + 1]
-          if (nextCell) currentCard.recipientName = nextCell.trim()
+          const nextCell = row[idx + 1]
+          if (nextCell) currentCard.recipientName = safeTrim(nextCell)
         }
         
         // 检测电话
         if (cellStr.includes('电话') || cellStr.includes('手机')) {
-          const nextCell = row[row.indexOf(cell) + 1]
-          if (nextCell) currentCard.recipientPhone = nextCell.trim()
+          const nextCell = row[idx + 1]
+          if (nextCell) currentCard.recipientPhone = safeTrim(nextCell)
         }
         
         // 检测地址
         if (cellStr.includes('地址') || cellStr.includes('收货地址')) {
-          const nextCell = row[row.indexOf(cell) + 1]
-          if (nextCell) currentCard.recipientAddress = nextCell.trim()
+          const nextCell = row[idx + 1]
+          if (nextCell) currentCard.recipientAddress = safeTrim(nextCell)
         }
       }
     }
@@ -225,12 +239,12 @@ function parseWithHeaderDetection(data: string[][]): any[] {
     if (!row) continue
 
     // 跳过空行
-    if (row.every(cell => !cell || cell.trim() === '')) {
+    if (row.every(cell => !cell || safeTrim(cell) === '')) {
       continue
     }
 
     // 跳过合计行
-    const rowStr = row.join('')
+    const rowStr = row.map(cell => safeString(cell)).join('')
     if (rowStr.includes('合计') || rowStr.includes('总计')) {
       continue
     }
@@ -240,12 +254,13 @@ function parseWithHeaderDetection(data: string[][]): any[] {
 
     for (const [field, colIdx] of Object.entries(fieldMapping)) {
       const value = row[colIdx as number]
-      if (value && value.trim()) {
+      const valueStr = safeTrim(value)
+      if (valueStr) {
         if (field === 'quantity') {
-          const num = parseInt(value.trim())
+          const num = parseInt(valueStr)
           item[field] = !isNaN(num) ? num : 1
         } else {
-          item[field] = value.trim()
+          item[field] = valueStr
         }
         hasData = true
       }
@@ -281,7 +296,7 @@ function parseWithLooseMatching(data: string[][]): any[] {
   // 查找可能包含数据的行范围
   let startRow = 0
   for (let i = 0; i < Math.min(10, data.length); i++) {
-    if (data[i]?.some(cell => cell && cell.trim() && /\d/.test(cell.trim()))) {
+    if (data[i]?.some(cell => cell && safeTrim(cell) && /\d/.test(safeTrim(cell)))) {
       startRow = i
       break
     }
@@ -297,20 +312,20 @@ function parseWithLooseMatching(data: string[][]): any[] {
     const row = data[i]
     if (!row) continue
 
-    const rowStr = row.join('')
-    if (!rowStr.trim()) continue
+    const rowStr = row.map(cell => safeString(cell)).join('')
+    if (!safeTrim(rowStr)) continue
     if (rowStr.includes('合计') || rowStr.includes('总计')) continue
 
     const item: any = {}
     
     // 尝试提取SKU
     if (skuColumn !== -1 && row[skuColumn]) {
-      item.skuCode = row[skuColumn].trim()
+      item.skuCode = safeTrim(row[skuColumn])
     }
     
     // 尝试提取数量
     if (qtyColumn !== -1 && row[qtyColumn]) {
-      const num = parseInt(row[qtyColumn].trim())
+      const num = parseInt(safeTrim(row[qtyColumn]))
       item.quantity = !isNaN(num) && num > 0 ? num : 1
     } else {
       item.quantity = 1
@@ -320,8 +335,9 @@ function parseWithLooseMatching(data: string[][]): any[] {
     let maxText = ''
     for (let j = 0; j < row.length; j++) {
       const cell = row[j]
-      if (cell && cell.trim().length > maxText.length && !/^\d+$/.test(cell.trim())) {
-        maxText = cell.trim()
+      const cellStr = safeTrim(cell)
+      if (cellStr && cellStr.length > maxText.length && !/^\d+$/.test(cellStr)) {
+        maxText = cellStr
       }
     }
     if (maxText && !item.skuCode) {
@@ -352,7 +368,7 @@ function parseWithMatrixDetection(data: string[][]): any[] {
   
   // 先检查第1行
   const firstRow = data[0] || []
-  const firstRowStr = firstRow.join('')
+  const firstRowStr = firstRow.map(cell => safeString(cell)).join('')
   
   // 检查是否包含门店关键词
   const storeKeywords = ['银泰', '金桥', '金银潭', '门店', '店', '仓', '仓库']
@@ -360,7 +376,7 @@ function parseWithMatrixDetection(data: string[][]): any[] {
   
   for (const cell of firstRow) {
     if (!cell) continue
-    const cellStr = cell.trim()
+    const cellStr = safeTrim(cell)
     for (const keyword of storeKeywords) {
       if (cellStr.includes(keyword) && !cellStr.includes('名称') && !cellStr.includes('编码')) {
         hasStoreColumns = true
@@ -380,7 +396,7 @@ function parseWithMatrixDetection(data: string[][]): any[] {
     const secondRow = data[1] || []
     for (const cell of secondRow) {
       if (!cell) continue
-      const cellStr = cell.trim()
+      const cellStr = safeTrim(cell)
       for (const keyword of storeKeywords) {
         if (cellStr.includes(keyword) && !cellStr.includes('名称') && !cellStr.includes('编码')) {
           hasStoreColumns = true
@@ -405,7 +421,7 @@ function parseWithMatrixDetection(data: string[][]): any[] {
   let qtyCol = -1
   
   for (let j = 0; j < headerRow.length; j++) {
-    const cell = headerRow[j] || ''
+    const cell = safeString(headerRow[j] || '')
     if (cell.includes('条码') || cell.includes('SKU编码') || cell.includes('编码')) {
       skuCodeCol = j
     } else if (cell.includes('SKU名称') || cell.includes('名称') || cell.includes('品名')) {
@@ -427,24 +443,24 @@ function parseWithMatrixDetection(data: string[][]): any[] {
     const row = data[i]
     if (!row) continue
 
-    const rowStr = row.join('')
-    if (!rowStr.trim()) continue
+    const rowStr = row.map(cell => safeString(cell)).join('')
+    if (!safeTrim(rowStr)) continue
     if (rowStr.includes('合计') || rowStr.includes('总计')) continue
 
-    const skuCode = row[skuCodeCol]?.trim() || ''
-    const skuName = row[skuNameCol]?.trim() || ''
+    const skuCode = safeTrim(row[skuCodeCol])
+    const skuName = safeTrim(row[skuNameCol])
     
     if (!skuCode && !skuName) continue
 
     // 每个门店生成一条记录
     for (let j = 0; j < headerRow.length; j++) {
-      const cell = headerRow[j] || ''
-      const storeName = cell.trim()
+      const cell = safeString(headerRow[j] || '')
+      const storeName = safeTrim(cell)
       
       // 只处理门店列
       if (!storeNames.includes(storeName)) continue
 
-      const qtyStr = row[j]?.trim() || ''
+      const qtyStr = safeTrim(row[j])
       const quantity = qtyStr ? (parseInt(qtyStr) || 1) : 0
       
       if (quantity > 0) {
@@ -471,8 +487,8 @@ function parseWithSimpleExtraction(data: string[][]): any[] {
     const row = data[i]
     if (!row) continue
 
-    const rowStr = row.join('')
-    if (!rowStr.trim()) continue
+    const rowStr = row.map(cell => safeString(cell)).join('')
+    if (!safeTrim(rowStr)) continue
     if (rowStr.includes('合计') || rowStr.includes('总计')) continue
 
     const item = extractDataFromRow(row)
@@ -494,7 +510,7 @@ function detectHeaderRow(data: string[][]): number {
 
   // 检测是否是复杂表单格式（配送发货单、出库单等）
   // 特点：第1行包含"发货单"、"出库单"、"调拨单"等关键词
-  const firstRowStr = (data[0] || []).join('')
+  const firstRowStr = (data[0] || []).map(cell => safeString(cell)).join('')
   const isComplexForm = firstRowStr.includes('发货单') || 
                         firstRowStr.includes('出库单') || 
                         firstRowStr.includes('配送单') ||
@@ -508,7 +524,7 @@ function detectHeaderRow(data: string[][]): number {
       if (!row || row.length === 0) continue
       
       let score = 0
-      const rowStr = row.join('')
+      const rowStr = row.map(cell => safeString(cell)).join('')
       
       // 检查是否包含表头关键词
       for (const keyword of keywords) {
@@ -544,7 +560,7 @@ function detectHeaderRow(data: string[][]): number {
     if (!row || row.length === 0) continue
 
     let score = 0
-    const rowStr = row.join('')
+    const rowStr = row.map(cell => safeString(cell)).join('')
 
     for (const keyword of keywords) {
       if (rowStr.includes(keyword)) {
@@ -588,7 +604,7 @@ function generateFieldMapping(headers: string[]): Record<string, number> {
   }
 
   headers.forEach((header, index) => {
-    const headerStr = (header || '').trim()
+    const headerStr = safeTrim(header)
     if (!headerStr) return
 
     for (const [field, keywords] of Object.entries(fieldKeywords)) {
@@ -616,7 +632,8 @@ function findColumnWithPattern(data: string[][], pattern: RegExp, startRow: numb
     
     for (let j = 0; j < row.length; j++) {
       const cell = row[j]
-      if (cell && cell.trim() && pattern.test(cell.trim())) {
+      const cellStr = safeTrim(cell)
+      if (cellStr && pattern.test(cellStr)) {
         colScores[j] = (colScores[j] || 0) + 1
       }
     }
@@ -646,7 +663,7 @@ function extractDataFromRow(row: string[]): any | null {
 
   for (const cell of row) {
     if (!cell) continue
-    const value = cell.trim()
+    const value = safeTrim(cell)
     if (!value) continue
     
     hasAnyValue = true  // 有值
@@ -681,7 +698,7 @@ function extractDataFromRow(row: string[]): any | null {
       // 查找第一个数字作为 skuCode
       for (const cell of row) {
         if (!cell) continue
-        const value = cell.trim()
+        const value = safeTrim(cell)
         const num = parseInt(value)
         if (!isNaN(num) && num > 0) {
           skuCode = value
@@ -703,7 +720,7 @@ async function parseWord(buffer: ArrayBuffer) {
     const parsedData: any[] = []
 
     for (const line of lines) {
-      const trimmed = line.trim()
+      const trimmed = safeTrim(line)
       if (trimmed.length > 3) {
         parsedData.push({
           skuCode: '',
@@ -758,7 +775,7 @@ export function parseWithRule(buffer: ArrayBuffer, rule: any) {
         const row = data[i]
         if (!row) continue
 
-        if (row.every(cell => !cell || cell.trim() === '')) {
+        if (row.every(cell => !cell || safeTrim(cell) === '')) {
           continue
         }
 
@@ -766,11 +783,12 @@ export function parseWithRule(buffer: ArrayBuffer, rule: any) {
 
         for (const [field, colIdx] of Object.entries(colIndexMap)) {
           const rawValue = row[colIdx as number]
-          if (rawValue && rawValue.trim()) {
+          const valueStr = safeTrim(rawValue)
+          if (valueStr) {
             if (field === 'quantity') {
-              item[field] = parseInt(rawValue.trim()) || 0
+              item[field] = parseInt(valueStr) || 0
             } else {
-              item[field] = rawValue.trim()
+              item[field] = valueStr
             }
           }
         }
@@ -884,7 +902,7 @@ function generateFieldMappingWithDetails(headers: string[]) {
   }
 
   headers.forEach((header, index) => {
-    const headerStr = (header || '').trim()
+    const headerStr = safeTrim(header)
     if (!headerStr) return
 
     for (const [field, keywords] of Object.entries(fieldKeywords)) {
