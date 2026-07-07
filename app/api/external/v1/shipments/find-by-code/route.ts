@@ -32,7 +32,7 @@ export const GET = withRequestLogging(
     const { externalCode } = parsed.data;
     
     try {
-      const shipment = await prisma.shipment.findUnique({
+      const shipment = await prisma.shipment.findFirst({
         where: { externalCode },
         include: { items: true },
       });
