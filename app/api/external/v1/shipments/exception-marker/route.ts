@@ -48,7 +48,7 @@ export const PATCH = withRequestLogging(
         where: { id: idOrExternalCode },
       });
       if (!existing) {
-        existing = await prisma.shipment.findUnique({
+        existing = await prisma.shipment.findFirst({
           where: { externalCode: idOrExternalCode },
         });
       }
