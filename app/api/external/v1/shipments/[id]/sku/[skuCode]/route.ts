@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+
 import { withExternalApiAuth } from "@/lib/external-api-auth";
 import { withRequestLogging } from "@/lib/api-logger";
 
@@ -9,8 +11,7 @@ export const GET = withRequestLogging(
     const { searchParams } = new URL(req.url);
     const byExternalCode = searchParams.get("byExternalCode");
 
-    const { PrismaClient } = await import("@/lib/prisma");
-    const prisma = new PrismaClient();
+    
 
     try {
       let shipment;
@@ -59,8 +60,6 @@ export const GET = withRequestLogging(
         },
         { status: 500 }
       );
-    } finally {
-      await prisma.$disconnect();
     }
   })
 );
