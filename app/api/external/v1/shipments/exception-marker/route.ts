@@ -3,21 +3,18 @@ import { withExternalApiAuth } from "@/lib/external-api-auth";
 import { withRequestLogging } from "@/lib/api-logger";
 import { z } from "zod";
 
-// 兼容 V3 客户端：severity 接受大写/小写/任意字符串
+// 兼容 V3 客户端：severity / exceptionType 接受任意字符串大小写
 const bodySchema = z.object({
   idOrExternalCode: z.string().min(1, "idOrExternalCode is required"),
   hasException: z.boolean(),
-  exceptionType: z.enum(["qc", "logistics"]).or(z.string()).optional(),
+  exceptionType: z.string().optional(),
   ticketId: z.string().optional(),
-  severity: z
-    .enum(["low", "medium", "high", "LOW", "MEDIUM", "HIGH", "CRITICAL"])
-    .or(z.string())
-    .optional(),
+  severity: z.string().optional(),
   remark: z.string().optional(),
 });
 
 export const PATCH = withRequestLogging(
-  withExternalApiAuth(async (req: Request) => {
+  withExternalApiAuth(async (req) => {
     let body;
     try {
       body = await req.json();
@@ -45,7 +42,7 @@ export const PATCH = withRequestLogging(
     const { PrismaClient } = await import("@/lib/prisma");
     const prisma = new PrismaClient();
     try {
-      // 1) 优先按 id 查，2) 找不到按 externalCode 查
+      // 先按 id 查，找不到再按 externalCode 查询
       let existing = await prisma.shipment.findUnique({
         where: { id: idOrExternalCode },
       });
@@ -65,11 +62,11 @@ export const PATCH = withRequestLogging(
           { status: 422 }
         );
       }
-      const previousStatus = existing.status;
+      const previousStatus: any = existing.status;
       const typeNorm = (exceptionType ?? "unknown").toLowerCase().replace(/[^a-z0-9]/g, "");
-      const currentStatus = hasException
+      const currentStatus: string = hasException
         ? `exception_${typeNorm || "unknown"}`
-        : existing.submittedAt
+        : (existing as any).submittedAt
           ? "submitted"
           : "pending";
 
