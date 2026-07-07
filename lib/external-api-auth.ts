@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
+// ================================================================
+// 类型放宽：ctx 使用 any，避免与子路由 Params（如 {params:{id:string}}）
+// 的逆变赋值冲突。函数内部不读 ctx.params，any 安全。
+// ================================================================
 type ApiHandler = (
   req: Request,
-  ctx: { params: Record<string, string | string[]> }
+  ctx: any
 ) => Promise<NextResponse>;
 
 export function withExternalApiAuth(handler: ApiHandler): ApiHandler {
