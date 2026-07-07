@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+
 import { withExternalApiAuth } from "@/lib/external-api-auth";
 import { withRequestLogging } from "@/lib/api-logger";
 import { z } from "zod";
@@ -60,8 +62,7 @@ async function handleRequest(req: Request) {
   const { page, pageSize, keyword, externalCode } = parsed.data;
   const skip = (page - 1) * pageSize;
 
-  const { PrismaClient } = await import("@/lib/prisma");
-  const prisma = new PrismaClient();
+  
 
   try {
     const where: Record<string, any> = {};
@@ -110,7 +111,5 @@ async function handleRequest(req: Request) {
       },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }
