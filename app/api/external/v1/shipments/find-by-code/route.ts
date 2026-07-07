@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+
 import { withExternalApiAuth } from "@/lib/external-api-auth";
 import { withRequestLogging } from "@/lib/api-logger";
 import { z } from "zod";
@@ -28,8 +30,7 @@ export const GET = withRequestLogging(
       );
     }
     const { externalCode } = parsed.data;
-    const { PrismaClient } = await import("@/lib/prisma");
-    const prisma = new PrismaClient();
+    
     try {
       const shipment = await prisma.shipment.findUnique({
         where: { externalCode },
@@ -57,8 +58,6 @@ export const GET = withRequestLogging(
         },
         { status: 500 }
       );
-    } finally {
-      await prisma.$disconnect();
     }
   })
 );
