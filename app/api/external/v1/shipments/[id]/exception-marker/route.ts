@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+
 import { withExternalApiAuth } from "@/lib/external-api-auth";
 import { withRequestLogging } from "@/lib/api-logger";
 import { z } from "zod";
@@ -46,8 +48,7 @@ export const PATCH = withRequestLogging(
     const { searchParams } = new URL(req.url);
     const byExternalCode = searchParams.get("byExternalCode");
 
-    const { PrismaClient } = await import("@/lib/prisma");
-    const prisma = new PrismaClient();
+    
 
     try {
       let whereClause: Record<string, any>;
@@ -110,8 +111,6 @@ export const PATCH = withRequestLogging(
         },
         { status: 500 }
       );
-    } finally {
-      await prisma.$disconnect();
     }
   })
 );
