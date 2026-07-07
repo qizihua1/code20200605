@@ -13,3 +13,5 @@ const nextConfig = {
 }
 
 module.exports = nextConfig
+
+// no-op trigger for Vercel deploy @ 20260707-083300 UTC
