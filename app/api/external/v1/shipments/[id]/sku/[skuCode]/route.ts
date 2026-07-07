@@ -17,7 +17,7 @@ export const GET = withRequestLogging(
       let shipment;
 
       if (byExternalCode) {
-        shipment = await prisma.shipment.findUnique({
+        shipment = await prisma.shipment.findFirst({
           where: { externalCode: byExternalCode },
           include: { items: true },
         });
