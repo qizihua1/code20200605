@@ -8,7 +8,7 @@ const querySchema = z.object({
 });
 
 export const GET = withRequestLogging(
-  withExternalApiAuth(async (req: Request) => {
+  withExternalApiAuth(async (req) => {
     const { searchParams } = new URL(req.url);
     const parsed = querySchema.safeParse({
       externalCode: searchParams.get("externalCode") ?? undefined,
