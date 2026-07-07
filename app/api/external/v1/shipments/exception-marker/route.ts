@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+
 import { withExternalApiAuth } from "@/lib/external-api-auth";
 import { withRequestLogging } from "@/lib/api-logger";
 import { z } from "zod";
@@ -39,8 +41,7 @@ export const PATCH = withRequestLogging(
     const { idOrExternalCode, hasException, exceptionType, ticketId, severity, remark } =
       parsed.data;
 
-    const { PrismaClient } = await import("@/lib/prisma");
-    const prisma = new PrismaClient();
+    
     try {
       // 先按 id 查，找不到再按 externalCode 查询
       let existing = await prisma.shipment.findUnique({
@@ -96,8 +97,6 @@ export const PATCH = withRequestLogging(
         },
         { status: 500 }
       );
-    } finally {
-      await prisma.$disconnect();
     }
   })
 );
