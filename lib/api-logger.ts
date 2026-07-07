@@ -15,9 +15,10 @@ type LogEntry = {
   timestamp: string;
 };
 
+// ctx 使用 any，避免与子路由 Params 的逆变类型冲突
 type ApiHandler = (
   req: Request,
-  ctx: { params: Record<string, string | string[]> }
+  ctx: any
 ) => Promise<NextResponse>;
 
 export function logExternalApiCall(entry: Omit<LogEntry, "timestamp">): void {
