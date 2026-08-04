@@ -51,15 +51,12 @@ export const PATCH = withRequestLogging(
     
 
     try {
-      let whereClause: Record<string, any>;
-      if (byExternalCode) {
-        whereClause = { externalCode: byExternalCode };
-      } else {
-        whereClause = { id: params.id };
-      }
+      const whereClause = byExternalCode
+        ? { externalCode: byExternalCode }
+        : { id: params.id };
 
       const existing = await prisma.shipment.findUnique({
-        where: whereClause,
+        where: whereClause as any,
       });
 
       if (!existing) {
@@ -84,7 +81,7 @@ export const PATCH = withRequestLogging(
       }
 
       const updated = await prisma.shipment.update({
-        where: whereClause,
+        where: whereClause as any,
         data: {
           status: currentStatus,
         },

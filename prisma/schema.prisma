@@ -15,49 +15,13 @@ model ParsingRule {
   fileFormat      String   // excel | word | pdf
   fileNamePattern String?  // 文件名匹配模式（可选，用于提示）
   
-  // 规则核心配置 - JSON Schema
-  // 结构：{
-  //   headerSkip: number,            // 跳过前 N 行
-  //   dataStartRow: number,          // 数据从第 N 行开始
-  //   sheetStrategy: string,         // all | first | byName
-  //   sheetNames: string[],          // 指定 Sheet 列表
-  //   extractionType: string,        // table | card | matrix | text
-  //   footerExtract: FooterRule[],   // 尾部信息提取规则
-  //   crossRowAggregate: boolean,    // 是否跨行聚合
-  //   aggregationKey: string,        // 聚合键字段
-  //   cellTransform: string,         // 单元格转换规则
-  //   textSeparator: string,         // 文本分隔符（Word/PDF 用）
-  //   cardMarker: string             // 卡片起始标记
-  // }
   structure       Json     
-  
-  // 字段映射 - JSON Array
-  // 结构：[
-  //   {
-  //     field: "skuCode",            // 目标字段
-  //     sourceType: "column" | "header" | "footer" | "static",
-  //     source: "物品编码",          // 列名/表头关键词/尾部键/静态值
-  //     column_index: number,        // 列索引（0-based，备选）
-  //     transform: "trim|number|...",// 转换函数
-  //     required: true,
-  //     defaultValue: ""
-  //   }
-  // ]
   fieldMappings   Json     
-  
-  // 转换规则 - 可选
-  // 结构：[
-  //   {
-  //     type: "transpose",           // matrix | split | aggregate
-  //     config: {...}
-  //   }
-  // ]
   transformations Json?
   
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   
-  // 使用此规则解析的运单
   shipments     Shipment[]
 
   @@map("parsing_rules")
@@ -66,27 +30,21 @@ model ParsingRule {
 // 运单主表
 model Shipment {
   id               String    @id @default(cuid())
-  externalCode     String?   // 外部编码（用于去重聚合）
+  externalCode     String?   
   
-  // A 组 - 门店模式
   storeName        String?
-  
-  // B 组 - 收件人模式（至少 A 组或 B 组之一必填）
   recipientName    String?
   recipientPhone   String?
   recipientAddress String?
   
-  // 元信息
-  status           String    @default("pending") // pending | submitted | failed
+  status           String    @default("pending")
   submittedAt      DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   
-  // 关联的解析规则
   parsingRule      ParsingRule? @relation(fields: [parsingRuleId], references: [id])
   parsingRuleId    String?
   
-  // 物品明细
   items            ShipmentItem[]
   
   @@index([externalCode])
@@ -108,10 +66,153 @@ model ShipmentItem {
   specification String?
   remarks       String?
   
-  // 校验标记
   isValid       Boolean   @default(true)
-  errors        String?   // JSON Array of error messages
+  errors        String?   
   
   @@index([shipmentId])
   @@map("shipment_items")
+}
+
+// SKU 主数据
+model SkuMaster {
+  id        String   @id @default(cuid())
+  skuCode   String   @unique
+  name      String
+  spec      String?
+  unit      String?
+  createdAt DateTime @default(now())
+
+  @@map("sku_master")
+}
+
+// 导入任务主表
+model ImportTask {
+  id              String   @id @default(cuid())
+  taskId          String   @unique
+  traceId         String
+  fileName        String
+  fileSize        Int      @default(0)
+  storageKey      String?
+  status          String   @default("PENDING") // PENDING | PROCESSING | COMPLETED | PARTIAL_SUCCESS | FAILED
+  totalRows       Int      @default(0)
+  processedRows   Int      @default(0)
+  successRows     Int      @default(0)
+  failedRows      Int      @default(0)
+  totalBatches    Int      @default(0)
+  completedBatches Int     @default(0)
+  degraded        Boolean  @default(false)
+  ruleId          String?
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+
+  batches         ImportTaskBatch[]
+  errors          ImportTaskError[]
+  performanceLogs BatchPerformanceLog[]
+  traceEvents     TraceEvent[]
+
+  @@index([status, createdAt])
+  @@index([taskId])
+  @@map("import_tasks")
+}
+
+// 处理单元批次状态表
+model ImportTaskBatch {
+  id            String   @id @default(cuid())
+  taskId        String
+  unitId        String
+  batchIndex    Int
+  startRow      Int
+  endRow        Int
+  status        String   @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED
+  retryCount    Int      @default(0)
+  lockedAt      DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  task          ImportTask @relation(fields: [taskId], references: [taskId])
+  errors        ImportTaskError[]
+  performanceLog BatchPerformanceLog?
+
+  @@unique([taskId, unitId])
+  @@index([taskId])
+  @@map("import_task_batches")
+}
+
+// 行级错误明细
+model ImportTaskError {
+  id           String   @id @default(cuid())
+  taskId       String
+  unitId       String
+  batchIndex   Int
+  rowNumber    Int
+  fieldName    String
+  rawValue     String?
+  errorCode    String
+  errorReason  String
+  traceId      String
+  createdAt    DateTime @default(now())
+
+  task         ImportTask @relation(fields: [taskId], references: [taskId])
+  batch        ImportTaskBatch @relation(fields: [taskId, unitId], references: [taskId, unitId])
+
+  @@index([taskId, unitId])
+  @@index([errorCode])
+  @@map("import_task_errors")
+}
+
+// 本地可靠事件表 (Outbox)
+model EventOutbox {
+  id            String   @id @default(cuid())
+  aggregateId   String   // task_id
+  eventType     String   // ImportBatchCreated, etc.
+  payload       Json
+  status        String   @default("PENDING") // PENDING | SENT | FAILED
+  retryCount    Int      @default(0)
+  nextRetryAt   DateTime?
+  createdAt     DateTime @default(now())
+  sentAt        DateTime?
+
+  @@index([status, nextRetryAt])
+  @@index([aggregateId])
+  @@map("event_outbox")
+}
+
+// 处理单元性能日志
+model BatchPerformanceLog {
+  id                 String   @id @default(cuid())
+  taskId             String
+  unitId             String
+  batchIndex         Int
+  parseDurationMs    Int      @default(0)
+  ruleDurationMs     Int      @default(0)
+  validateDurationMs Int      @default(0)
+  insertDurationMs   Int      @default(0)
+  totalDurationMs    Int      @default(0)
+  status             String
+  traceId            String
+  createdAt          DateTime @default(now())
+
+  task               ImportTask @relation(fields: [taskId], references: [taskId])
+  batch              ImportTaskBatch @relation(fields: [taskId, unitId], references: [taskId, unitId])
+
+  @@unique([taskId, unitId])
+  @@index([taskId, unitId])
+  @@map("batch_performance_log")
+}
+
+// 链路时间线事件
+model TraceEvent {
+  id          String   @id @default(cuid())
+  traceId     String
+  taskId      String?
+  unitId      String?
+  eventName   String
+  eventStatus String
+  message     String?
+  occurredAt  DateTime @default(now())
+
+  task        ImportTask? @relation(fields: [taskId], references: [taskId])
+
+  @@index([traceId, occurredAt])
+  @@map("trace_events")
 }

@@ -1,4 +1,10 @@
 {
   "buildCommand": "npm run db:generate && npm run build",
-  "installCommand": "npm install"
+  "installCommand": "npm install",
+  "crons": [
+    {
+      "path": "/api/outbox/dispatch",
+      "schedule": "* * * * *"
+    }
+  ]
 }

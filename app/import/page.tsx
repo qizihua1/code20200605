@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Toaster, toast } from 'sonner'
 import * as XLSX from 'xlsx'
@@ -28,6 +29,7 @@ interface ShipmentData {
 }
 
 export default function ImportPage() {
+  const router = useRouter()
   const [file, setFile] = useState<File | null>(null)
   const [rules, setRules] = useState<Rule[]>([])
   const [selectedRule, setSelectedRule] = useState<string>('')
@@ -38,6 +40,8 @@ export default function ImportPage() {
   const [duplicateWarnings, setDuplicateWarnings] = useState<any[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [asyncMode, setAsyncMode] = useState(true)
+  const [creatingTask, setCreatingTask] = useState(false)
 
   useEffect(() => {
     loadRules()
@@ -236,6 +240,41 @@ export default function ImportPage() {
     toast.success('导出成功！')
   }
 
+  const handleAsyncSubmit = async () => {
+    if (!file) {
+      toast.error('请先选择文件')
+      return
+    }
+
+    setCreatingTask(true)
+    
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      if (selectedRule) {
+        formData.append('ruleId', selectedRule)
+      }
+
+      const res = await fetch('/api/import-tasks', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await res.json()
+
+      if (res.ok) {
+        toast.success(`任务已创建！共 ${result.total_rows} 行数据，${result.total_batches} 个批次`)
+        router.push(`/task/${result.task_id}`)
+      } else {
+        toast.error(result.error || '创建任务失败')
+      }
+    } catch (error: any) {
+      toast.error('创建任务失败: ' + (error.message || '未知错误'))
+    } finally {
+      setCreatingTask(false)
+    }
+  }
+
   const handleSubmit = async () => {
     const hasErrors = parsedData.some(row => row.errors && row.errors.length > 0)
     if (hasErrors) {
@@ -287,6 +326,9 @@ export default function ImportPage() {
   
   const submitDisabled = submitting || parsedData.some(row => row.errors && row.errors.length > 0)
   const submitClass = submitDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-700'
+  
+  const asyncSubmitDisabled = creatingTask || !file
+  const asyncSubmitClass = asyncSubmitDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
 
   return (
     <div className="min-h-screen">
@@ -409,43 +451,88 @@ export default function ImportPage() {
         </div>
 
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border border-gray-200">
-          <div className="flex gap-4">
-            <button
-              onClick={() => handleUpload(false)}
-              disabled={isButtonDisabled}
-              className={'flex-1 py-4 rounded-lg text-white font-semibold text-lg transition-all ' + buttonClass}
-            >
-              {parsing ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  解析中...
-                </span>
-              ) : (
-                '使用规则解析'
-              )}
-            </button>
-            
-            <button
-              onClick={() => handleUpload(true)}
-              disabled={smartButtonDisabled}
-              className={'flex-1 py-4 rounded-lg text-white font-semibold text-lg transition-all ' + smartButtonClass}
-            >
-              {parsing ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  解析中...
-                </span>
-              ) : (
-                '智能解析'
-              )}
-            </button>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-800">提交方式</h3>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setAsyncMode(true)}
+                className={`px-3 py-1 rounded text-sm ${asyncMode ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-600'}`}
+              >
+                异步导入（推荐）
+              </button>
+              <button
+                onClick={() => setAsyncMode(false)}
+                className={`px-3 py-1 rounded text-sm ${!asyncMode ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}
+              >
+                同步导入
+              </button>
+            </div>
           </div>
+          
+          {asyncMode ? (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+              <p className="text-sm text-indigo-800 mb-3">
+                🚀 异步模式：上传后立即返回任务ID，后台分批处理，支持10,000行/分钟吞吐量
+              </p>
+              <button
+                onClick={handleAsyncSubmit}
+                disabled={asyncSubmitDisabled}
+                className={'w-full py-4 rounded-lg text-white font-semibold text-lg transition-all ' + asyncSubmitClass}
+              >
+                {creatingTask ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    创建任务中...
+                  </span>
+                ) : (
+                  '📤 异步导入（上传即返回）'
+                )}
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => handleUpload(false)}
+                  disabled={isButtonDisabled}
+                  className={'flex-1 py-4 rounded-lg text-white font-semibold text-lg transition-all ' + buttonClass}
+                >
+                  {parsing ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      解析中...
+                    </span>
+                  ) : (
+                    '使用规则解析'
+                  )}
+                </button>
+                
+                <button
+                  onClick={() => handleUpload(true)}
+                  disabled={smartButtonDisabled}
+                  className={'flex-1 py-4 rounded-lg text-white font-semibold text-lg transition-all ' + smartButtonClass}
+                >
+                  {parsing ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      解析中...
+                    </span>
+                  ) : (
+                    '智能解析'
+                  )}
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         {showPreview && parsedData.length > 0 && (
