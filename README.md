@@ -183,4 +183,10 @@ npm run stress-test
 - **批量优化**: 1000 行/批，SKU 批量校验，数据批量写入
 - **全链路追踪**: traceId 贯穿所有操作
 
+## 文档索引
+
+- [架构设计文档](./ARCHITECTURE.md) - 异步任务流程图、Outbox 模式、批量处理策略
+- [接口文档](./API_DOCUMENTATION.md) - 上传、任务查询、错误查询、Trace 查询、监控聚合
+- [重构假设说明](./REFACTOR_ASSUMPTIONS.md) - 技术选型、性能推导、容灾设计
+
 详细设计假设请参阅 [REFACTOR_ASSUMPTIONS.md](./REFACTOR_ASSUMPTIONS.md)
