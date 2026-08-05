@@ -614,16 +614,16 @@ function detectHeaderRow(data: string[][]): number {
 function generateFieldMapping(headers: string[]): Record<string, number> {
   const mapping: Record<string, number> = {}
   const fieldKeywords: Record<string, string[]> = {
-    externalCode: ['单号', '编号', '订单号', '配送单号', '出库单号'],
-    skuCode: ['编码', '编号', 'SKU', '条码', '货号', '品号'],
-    skuName: ['名称', '品名', '商品名称', '货品名称', '产品名称'],
-    quantity: ['数量', '件数', 'Qty', '发货数量', '出库数量'],
-    specification: ['规格', '规格型号', '型号', '单位'],
-    storeName: ['门店', '店铺', '收货门店', '仓库', '分店'],
-    recipientName: ['收货人', '收件人', '姓名', '联系人'],
-    recipientPhone: ['电话', '手机', '联系电话', '手机号'],
-    recipientAddress: ['地址', '收货地址', '配送地址'],
-    remarks: ['备注', '说明', '备注信息']
+    externalCode: ['externalCode', 'external_code', 'orderNo', 'order_no', '单号', '编号', '订单号', '配送单号', '出库单号'],
+    skuCode: ['skuCode', 'sku_code', 'SKU', '编码', '条码', '货号', '品号'],
+    skuName: ['skuName', 'sku_name', '商品名称', '货品名称', '产品名称', '名称', '品名'],
+    quantity: ['quantity', 'qty', 'count', '件数', '发货数量', '出库数量', '数量'],
+    specification: ['specification', 'spec', 'model', '规格型号', '型号', '单位', '规格'],
+    storeName: ['storeName', 'store_name', '门店', '店铺', '收货门店', '仓库', '分店'],
+    recipientName: ['recipientName', 'recipient_name', '收货人', '收件人', '姓名', '联系人'],
+    recipientPhone: ['recipientPhone', 'recipient_phone', 'phone', 'mobile', '联系电话', '手机号', '电话', '手机'],
+    recipientAddress: ['recipientAddress', 'recipient_address', 'address', '收货地址', '配送地址', '地址'],
+    remarks: ['remarks', 'remark', 'note', '备注信息', '备注', '说明']
   }
 
   headers.forEach((header, index) => {
@@ -912,16 +912,16 @@ export async function analyzeAndSuggestRule(buffer: ArrayBuffer, fileName: strin
 function generateFieldMappingWithDetails(headers: string[]) {
   const mappings: any[] = []
   const fieldKeywords: Record<string, string[]> = {
-    externalCode: ['单号', '编号', '订单号', '配送单号', '出库单号'],
-    skuCode: ['编码', '编号', 'SKU', '条码', '货号'],
-    skuName: ['名称', '品名', '商品名称', '货品名称'],
-    quantity: ['数量', '件数', 'Qty', '发货数量'],
-    specification: ['规格', '规格型号', '型号', '单位'],
-    storeName: ['门店', '店铺', '收货门店', '仓库'],
-    recipientName: ['收货人', '收件人', '姓名', '联系人'],
-    recipientPhone: ['电话', '手机', '联系电话'],
-    recipientAddress: ['地址', '收货地址', '配送地址'],
-    remarks: ['备注', '说明']
+    externalCode: ['externalCode', 'external_code', 'orderNo', 'order_no', '单号', '编号', '订单号', '配送单号', '出库单号'],
+    skuCode: ['skuCode', 'sku_code', 'SKU', '编码', '条码', '货号', '品号'],
+    skuName: ['skuName', 'sku_name', '商品名称', '货品名称', '产品名称', '名称', '品名'],
+    quantity: ['quantity', 'qty', 'count', '件数', '发货数量', '出库数量', '数量'],
+    specification: ['specification', 'spec', 'model', '规格型号', '型号', '单位', '规格'],
+    storeName: ['storeName', 'store_name', '门店', '店铺', '收货门店', '仓库', '分店'],
+    recipientName: ['recipientName', 'recipient_name', '收货人', '收件人', '姓名', '联系人'],
+    recipientPhone: ['recipientPhone', 'recipient_phone', 'phone', 'mobile', '联系电话', '手机号', '电话', '手机'],
+    recipientAddress: ['recipientAddress', 'recipient_address', 'address', '收货地址', '配送地址', '地址'],
+    remarks: ['remarks', 'remark', 'note', '备注信息', '备注', '说明']
   }
 
   headers.forEach((header, index) => {
