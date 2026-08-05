@@ -7,7 +7,7 @@
 | 1 | 在线地址 | https://code20200605.vercel.app |
 | 2 | 源码仓库 | https://github.com/qizihua1/code20200605 |
 | 3 | 压测数据脚本 | `scripts/seed-sku-master.js` + `scripts/generate-stress-test.js` |
-| 4 | 10,000 行压测 Excel | `stress-test-10000rows.xlsx` (通过脚本生成) |
+| 4 | 10,000 行压测文件 | `stress-test-10000rows.csv` (通过脚本生成) |
 | 5 | 压测报告 | [STRESS_TEST_REPORT.md](./STRESS_TEST_REPORT.md) |
 | 6 | 架构设计文档 | [ARCHITECTURE.md](./ARCHITECTURE.md) |
 | 7 | 重构假设说明 | [REFACTOR_ASSUMPTIONS.md](./REFACTOR_ASSUMPTIONS.md) |
