@@ -96,7 +96,7 @@ export async function processBatch(jobPayload: {
     ruleDurationMs = Date.now() - ruleStart
     
     const validateStart = Date.now()
-    const { validItems, errors, degraded } = await validateBatchData(batchData, task_id, unit_id, batch_index, traceId)
+    const { validItems, hardErrors, softWarnings, degraded } = await validateBatchData(batchData, task_id, unit_id, batch_index, traceId)
     validateDurationMs = Date.now() - validateStart
     
     if (degraded && !task.degraded) {
@@ -104,7 +104,7 @@ export async function processBatch(jobPayload: {
     }
     
     const insertStart = Date.now()
-    const { insertedCount, errorCount } = await batchInsertShipments(validItems, errors, task_id, unit_id, batch_index, traceId)
+    const { insertedCount, dbErrorCount } = await batchInsertShipments(validItems, hardErrors, task_id, unit_id, batch_index, traceId)
     insertDurationMs = Date.now() - insertStart
     
     const totalDurationMs = Date.now() - startTime
@@ -136,11 +136,18 @@ export async function processBatch(jobPayload: {
     await logTraceEvent(prisma, traceId, 'ImportBatchSucceeded', 'SUCCESS', 
       `批次 ${unit_id} 完成，耗时 ${totalDurationMs}ms`, task_id, unit_id)
     
-    await updateTaskProgress(task_id, unit_id, batchData.length, insertedCount, errorCount)
+    // 失败行数仅计算硬校验错误+数据库错误，软警告不计入失败
+    const hardErrorCount = hardErrors.length
+    const softWarningCount = softWarnings.length
+    const failedCount = hardErrorCount + dbErrorCount
+    const successCount = batchData.length - failedCount
+    console.log(`批次 ${unit_id} 结果: 总${batchData.length}, 成功${successCount}, 硬错误${hardErrorCount}, 数据库错误${dbErrorCount}, 软警告${softWarningCount}`)
+    
+    await updateTaskProgress(task_id, unit_id, batchData.length, successCount, failedCount)
     
     await checkAndCompleteTask(task_id)
     
-    return { success: true, processed: batchData.length, errors: errorCount }
+    return { success: true, processed: batchData.length, errors: failedCount }
     
   } catch (error: any) {
     console.error(`Batch ${unit_id} processing failed:`, error)
@@ -184,9 +191,10 @@ async function validateBatchData(
   unitId: string,
   batchIndex: number,
   traceId: string
-): Promise<{ validItems: any[]; errors: any[]; degraded: boolean }> {
+): Promise<{ validItems: any[]; hardErrors: any[]; softWarnings: any[]; degraded: boolean }> {
   const validItems: any[] = []
-  const errors: any[] = []
+  const hardErrors: any[] = []
+  const softWarnings: any[] = []
   let degraded = false
   
   const uniqueSkus = new Set<string>()
@@ -245,7 +253,7 @@ async function validateBatchData(
       validItems.push({ ...item, rowNumber })
     } else {
       for (const err of itemErrors) {
-        errors.push({
+        hardErrors.push({
           taskId,
           unitId,
           batchIndex,
@@ -278,22 +286,20 @@ async function validateBatchData(
         results.filter(r => r !== null).map(r => r!.skuCode)
       )
       
-      for (let i = 0; i < validItems.length; i++) {
-        const item = validItems[i]
+      // SKU 主数据软校验：记录警告但不阻塞写入
+      for (const item of validItems) {
         if (item.skuCode && !validSkuCodes.has(item.skuCode)) {
-          errors.push({
+          softWarnings.push({
             taskId,
             unitId,
             batchIndex,
             rowNumber: item.rowNumber,
             fieldName: 'skuCode',
             errorCode: ErrorCodes.SKU_NOT_FOUND,
-            errorReason: `SKU编码 ${item.skuCode} 不存在于主数据中`,
+            errorReason: `SKU编码 ${item.skuCode} 不存在于主数据中（软校验）`,
             rawValue: maskSensitiveValue(item.skuCode, 'skuCode'),
             traceId,
           })
-          validItems.splice(i, 1)
-          i--
         }
       }
     }
@@ -302,30 +308,31 @@ async function validateBatchData(
     degraded = true
   }
   
-  if (errors.length > 0) {
+  const allErrors = [...hardErrors, ...softWarnings]
+  if (allErrors.length > 0) {
     await prisma.importTaskError.createMany({
-      data: errors,
+      data: allErrors,
       skipDuplicates: true,
     })
   }
   
-  return { validItems, errors, degraded }
+  return { validItems, hardErrors, softWarnings, degraded }
 }
 
 async function batchInsertShipments(
   items: any[],
-  existingErrors: any[],
+  hardErrors: any[],
   taskId: string,
   unitId: string,
   batchIndex: number,
   traceId: string
-): Promise<{ insertedCount: number; errorCount: number }> {
+): Promise<{ insertedCount: number; dbErrorCount: number }> {
   if (items.length === 0) {
-    return { insertedCount: 0, errorCount: existingErrors.length }
+    return { insertedCount: 0, dbErrorCount: 0 }
   }
   
   let insertedCount = 0
-  let errorCount = existingErrors.length
+  let dbErrorCount = 0
   
   const groupedByExternalCode = new Map<string, any[]>()
   
@@ -379,12 +386,12 @@ async function batchInsertShipments(
             traceId,
           },
         })
-        errorCount++
+        dbErrorCount++
       }
     }
   }
   
-  return { insertedCount, errorCount }
+  return { insertedCount, dbErrorCount }
 }
 
 async function checkAndCompleteTask(taskId: string) {
