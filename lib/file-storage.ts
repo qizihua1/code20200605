@@ -3,7 +3,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs'
 import path from 'path'
 import os from 'os'
 
-const STORAGE_ENABLED = process.env.BLOB_READ_WRITE_TOKEN && process.env.VERCEL
+const BLOB_ENABLED = process.env.BLOB_READ_WRITE_TOKEN && process.env.VERCEL
 const LOCAL_STORAGE_DIR = path.join(os.tmpdir(), 'v2-imports')
 
 function ensureLocalDir() {
@@ -17,7 +17,8 @@ export async function storeFile(
   fileName: string,
   taskId: string
 ): Promise<{ storageKey: string; blobUrl?: string }> {
-  if (STORAGE_ENABLED) {
+  // 优先使用 Vercel Blob
+  if (BLOB_ENABLED) {
     try {
       const blob = await put(`imports/${taskId}/${fileName}`, fileBuffer, {
         access: 'private',
@@ -25,11 +26,17 @@ export async function storeFile(
       })
       return { storageKey: blob.pathname, blobUrl: blob.url }
     } catch (e) {
-      console.warn('Vercel Blob upload failed, falling back to local:', e)
+      console.warn('Vercel Blob upload failed, falling back:', e)
     }
   }
 
-  // Local fallback: write to disk
+  // Vercel 生产环境：使用 base64 存储（函数间共享通过数据库）
+  if (process.env.VERCEL) {
+    const base64 = fileBuffer.toString('base64')
+    return { storageKey: `base64:${base64}` }
+  }
+
+  // 本地开发：写磁盘
   ensureLocalDir()
   const safeFileName = `${taskId}-${Date.now()}-${fileName}`
   const filePath = path.join(LOCAL_STORAGE_DIR, safeFileName)
@@ -52,7 +59,7 @@ export async function retrieveFile(storageKey: string): Promise<Buffer> {
     return Buffer.from(base64, 'base64')
   }
 
-  if (STORAGE_ENABLED) {
+  if (BLOB_ENABLED) {
     const response = await fetch(`${process.env.BLOB_BASE_URL}/${storageKey}`)
     if (!response.ok) {
       throw new Error('Failed to retrieve file from blob storage')

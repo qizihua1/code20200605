@@ -39,11 +39,6 @@ export async function processBatch(jobPayload: {
     return { success: true, processed: batch.endRow - batch.startRow + 1, errors: 0 }
   }
   
-  if (batch.status === 'PROCESSING') {
-    console.log(`Batch ${unit_id} is currently processing, skipping`)
-    return { success: false, processed: 0, errors: 0 }
-  }
-  
   const startTime = Date.now()
   const traceId = task.traceId
   

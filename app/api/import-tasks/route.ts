@@ -5,11 +5,17 @@ import { dispatchPendingEvents } from '@/lib/outbox-dispatcher'
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData()
-    const file = formData.get('file') as File
+    let formData: FormData
+    try {
+      formData = await request.formData()
+    } catch {
+      return NextResponse.json({ error: '请求格式错误，需要 multipart/form-data' }, { status: 400 })
+    }
+    
+    const file = formData.get('file')
     const ruleId = formData.get('ruleId') as string | null
     
-    if (!file) {
+    if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: '缺少文件' }, { status: 400 })
     }
     
@@ -21,14 +27,22 @@ export async function POST(request: NextRequest) {
       ruleId: ruleId || undefined,
     })
     
-    dispatchPendingEvents().catch(err => {
-      console.error('Immediate outbox dispatch failed:', err)
+    // 同步等待 Outbox 分发完成（确保 Vercel 不会在返回前终止处理）
+    try {
+      await dispatchPendingEvents()
+    } catch (err) {
+      console.error('Outbox dispatch failed (will retry via cron):', err)
+    }
+    
+    // 返回最新状态（可能已经 COMPLETED）
+    const updatedTask = await prisma.importTask.findUnique({
+      where: { taskId: result.task_id },
     })
     
     return NextResponse.json({
       task_id: result.task_id,
       trace_id: result.trace_id,
-      status: result.status,
+      status: updatedTask?.status || result.status,
       total_rows: result.total_rows,
       total_batches: result.total_batches,
     })

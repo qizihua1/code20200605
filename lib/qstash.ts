@@ -10,25 +10,30 @@ export { qstashClient }
 export async function publishBatchJob(taskId: string, unitId: string, batchIndex: number, payload: any) {
   const jobId = `${taskId}-${unitId}`
   
-  // 本地开发模式：直接处理批次
+  // 无 QStash 或本地开发模式：直接处理批次
   if (!qstashClient) {
-    console.log('[Local Mode] Processing batch directly:', { taskId, unitId, batchIndex })
-    const result = await processBatch({
-      task_id: taskId,
-      unit_id: unitId,
-      batch_index: batchIndex,
-      file_name: payload.file_name || '',
-      rule_id: payload.rule_id,
-      storage_key: payload.storage_key,
-      start_row: payload.start_row,
-      end_row: payload.end_row,
-    })
-    console.log('[Local Mode] Batch result:', result)
-    return jobId
+    console.log('[Direct Mode] Processing batch:', { taskId, unitId, batchIndex })
+    try {
+      const result = await processBatch({
+        task_id: taskId,
+        unit_id: unitId,
+        batch_index: batchIndex,
+        file_name: payload.file_name || '',
+        rule_id: payload.rule_id,
+        storage_key: payload.storage_key,
+        start_row: payload.start_row,
+        end_row: payload.end_row,
+      })
+      console.log('[Direct Mode] Batch result:', result)
+      return jobId
+    } catch (error) {
+      console.error('[Direct Mode] Batch failed:', error)
+      throw error
+    }
   }
   
-  // 生产模式：通过 QStash 分发
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  // QStash 模式：通过消息队列分发
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://code20200605.vercel.app'
   
   await qstashClient.publishJSON({
     url: `${appUrl}/api/worker/batch`,
