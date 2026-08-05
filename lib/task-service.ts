@@ -52,74 +52,70 @@ export async function createImportTask(input: CreateImportTaskInput): Promise<Cr
   
   const { storageKey } = await storeFile(fileBuffer, input.fileName, taskId)
   
-  const result = await prisma.$transaction(async (tx) => {
-    const task = await tx.importTask.create({
-      data: {
-        taskId,
-        traceId,
-        fileName: input.fileName,
-        fileSize: fileBuffer.length,
-        storageKey,
-        status: 'PENDING',
-        totalRows,
-        totalBatches,
-        ruleId: input.ruleId,
-      },
+  const task = await prisma.importTask.create({
+    data: {
+      taskId,
+      traceId,
+      fileName: input.fileName,
+      fileSize: fileBuffer.length,
+      storageKey,
+      status: 'PENDING',
+      totalRows,
+      totalBatches,
+      ruleId: input.ruleId,
+    },
+  })
+  
+  const batchData = []
+  const outboxData = []
+  
+  for (let i = 0; i < totalBatches; i++) {
+    const unitId = generateUnitId(i)
+    const startRow = i * BATCH_SIZE + 1
+    const endRow = Math.min((i + 1) * BATCH_SIZE, totalRows)
+    
+    batchData.push({
+      taskId,
+      unitId,
+      batchIndex: i,
+      startRow,
+      endRow,
+      status: 'PENDING',
     })
     
-    const batchData = []
-    const outboxData = []
-    
-    for (let i = 0; i < totalBatches; i++) {
-      const unitId = generateUnitId(i)
-      const startRow = i * BATCH_SIZE + 1
-      const endRow = Math.min((i + 1) * BATCH_SIZE, totalRows)
-      
-      batchData.push({
-        taskId,
-        unitId,
-        batchIndex: i,
-        startRow,
-        endRow,
-        status: 'PENDING',
-      })
-      
-      outboxData.push({
-        aggregateId: taskId,
-        eventType: 'ImportBatchCreated',
-        payload: {
-          task_id: taskId,
-          unit_id: unitId,
-          batch_index: i,
-          start_row: startRow,
-          end_row: endRow,
-          storage_key: storageKey,
-          file_name: input.fileName,
-          rule_id: input.ruleId,
-        },
-        status: 'PENDING',
-      })
-    }
-    
-    if (batchData.length > 0) {
-      await tx.importTaskBatch.createMany({ data: batchData })
-    }
-    
-    if (outboxData.length > 0) {
-      await tx.eventOutbox.createMany({ data: outboxData })
-    }
-    
-    await logTraceEvent(tx, traceId, 'ImportTaskCreated', 'SUCCESS', `任务创建成功，共 ${totalBatches} 个批次`, taskId)
-    
-    return task
-  }, { timeout: 30000 })
+    outboxData.push({
+      aggregateId: taskId,
+      eventType: 'ImportBatchCreated',
+      payload: {
+        task_id: taskId,
+        unit_id: unitId,
+        batch_index: i,
+        start_row: startRow,
+        end_row: endRow,
+        storage_key: storageKey,
+        file_name: input.fileName,
+        rule_id: input.ruleId,
+      },
+      status: 'PENDING',
+    })
+  }
+  
+  if (batchData.length > 0) {
+    await prisma.importTaskBatch.createMany({ data: batchData })
+  }
+  
+  if (outboxData.length > 0) {
+    await prisma.eventOutbox.createMany({ data: outboxData })
+  }
+  
+  await logTraceEvent(prisma, traceId, 'ImportTaskCreated', 'SUCCESS', `任务创建成功，共 ${totalBatches} 个批次`, taskId)
   
   return {
-    task_id: result.taskId,
-    trace_id: result.traceId,
-    status: result.status,
-    total_rows: result.totalRows,
-    total_batches: result.totalBatches,
+    task_id: task.taskId,
+    trace_id: task.traceId,
+    status: task.status,
+    total_rows: task.totalRows,
+    total_batches: task.totalBatches,
   }
 }
 
