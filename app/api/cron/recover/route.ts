@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
   try {
     // 4. 扫描超时批次（PROCESSING 超过 3 分钟）
     const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000)
-    const stuckBatches = await prisma.importBatch.findMany({
+    const stuckBatches = await prisma.importTaskBatch.findMany({
       where: {
         status: 'PROCESSING',
         createdAt: { lt: threeMinutesAgo },
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
     })
 
     for (const batch of stuckBatches) {
-      await prisma.importBatch.update({
+      await prisma.importTaskBatch.update({
         where: { id: batch.id },
         data: { status: 'FAILED' },
       })
