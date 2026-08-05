@@ -1,4 +1,4 @@
-import { put, get } from '@vercel/blob'
+import { put } from '@vercel/blob'
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs'
 import path from 'path'
 import os from 'os'
@@ -23,8 +23,8 @@ export async function storeFile(
         access: 'private',
         addRandomSuffix: true,
       })
-      console.log('Vercel Blob upload success:', blob.pathname)
-      return { storageKey: `blob:${blob.pathname}`, blobUrl: blob.url }
+      console.log('Vercel Blob upload success:', blob.url)
+      return { storageKey: `blob:${blob.url}`, blobUrl: blob.url }
     } catch (e) {
       console.warn('Vercel Blob upload failed, falling back:', e)
     }
@@ -60,10 +60,13 @@ export async function retrieveFile(storageKey: string): Promise<Buffer> {
   }
 
   if (storageKey.startsWith('blob:')) {
-    const pathname = storageKey.slice(5)
-    console.log('Retrieving from Vercel Blob:', pathname)
-    const blob = await get(pathname, { token: process.env.BLOB_READ_WRITE_TOKEN })
-    const response = await fetch(blob.url)
+    const blobUrl = storageKey.slice(5)
+    console.log('Retrieving from Vercel Blob:', blobUrl)
+    const response = await fetch(blobUrl, {
+      headers: {
+        'Authorization': `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
+      },
+    })
     if (!response.ok) {
       throw new Error(`Failed to retrieve file from Vercel Blob: ${response.status} ${response.statusText}`)
     }
