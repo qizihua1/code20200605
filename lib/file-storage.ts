@@ -1,4 +1,4 @@
-import { put } from '@vercel/blob'
+import { put, get } from '@vercel/blob'
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs'
 import path from 'path'
 import os from 'os'
@@ -24,7 +24,8 @@ export async function storeFile(
         access: 'private',
         addRandomSuffix: true,
       })
-      return { storageKey: blob.pathname, blobUrl: blob.url }
+      console.log('Vercel Blob upload success:', blob.pathname)
+      return { storageKey: `blob:${blob.pathname}`, blobUrl: blob.url }
     } catch (e) {
       console.warn('Vercel Blob upload failed, falling back:', e)
     }
@@ -33,6 +34,7 @@ export async function storeFile(
   // Vercel 生产环境：使用 base64 存储（函数间共享通过数据库）
   if (process.env.VERCEL) {
     const base64 = fileBuffer.toString('base64')
+    console.log('Using base64 storage (Blob not available)')
     return { storageKey: `base64:${base64}` }
   }
 
@@ -41,6 +43,7 @@ export async function storeFile(
   const safeFileName = `${taskId}-${Date.now()}-${fileName}`
   const filePath = path.join(LOCAL_STORAGE_DIR, safeFileName)
   writeFileSync(filePath, fileBuffer)
+  console.log('Using local file storage:', filePath)
   return { storageKey: `local:${safeFileName}` }
 }
 
@@ -59,14 +62,17 @@ export async function retrieveFile(storageKey: string): Promise<Buffer> {
     return Buffer.from(base64, 'base64')
   }
 
-  if (BLOB_ENABLED) {
-    const response = await fetch(`${process.env.BLOB_BASE_URL}/${storageKey}`)
+  if (storageKey.startsWith('blob:')) {
+    const pathname = storageKey.slice(5)
+    console.log('Retrieving from Vercel Blob:', pathname)
+    const blob = await get(pathname)
+    const response = await fetch(blob.url)
     if (!response.ok) {
-      throw new Error('Failed to retrieve file from blob storage')
+      throw new Error(`Failed to retrieve file from Vercel Blob: ${response.status}`)
     }
     const arrayBuffer = await response.arrayBuffer()
     return Buffer.from(arrayBuffer)
   }
 
-  throw new Error('Cannot retrieve file: storage not configured')
+  throw new Error(`Cannot retrieve file: unknown storage key format: ${storageKey}`)
 }
