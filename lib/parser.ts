@@ -525,14 +525,16 @@ function parseWithSimpleExtraction(data: string[][]): any[] {
 
 // 智能检测表头行（支持复杂表单格式）
 function detectHeaderRow(data: string[][]): number {
-  const keywords = [
+  const headerKeywords = [
     '编码', '编号', 'SKU', '名称', '数量', '规格', '门店',
     '收货', '电话', '地址', '单价', '金额', '日期', '单号', '序号',
-    '物品编码', '物品名称', '物品分类', '物品品牌', '规格型号'
+    '物品编码', '物品名称', '物品分类', '物品品牌', '规格型号',
+    'skuCode', 'skuName', 'quantity', 'recipientName', 'recipientPhone',
+    'recipientAddress', 'storeName', 'specification', 'externalCode',
+    'remarks', 'sku_code', 'sku_name'
   ]
 
   // 检测是否是复杂表单格式（配送发货单、出库单等）
-  // 特点：第1行包含"发货单"、"出库单"、"调拨单"等关键词
   const firstRowStr = (data[0] || []).map(cell => safeString(cell)).join('')
   const isComplexForm = firstRowStr.includes('发货单') || 
                         firstRowStr.includes('出库单') || 
@@ -550,7 +552,7 @@ function detectHeaderRow(data: string[][]): number {
       const rowStr = row.map(cell => safeString(cell)).join('')
       
       // 检查是否包含表头关键词
-      for (const keyword of keywords) {
+      for (const keyword of headerKeywords) {
         if (rowStr.includes(keyword)) {
           score += 2
         }
@@ -585,7 +587,7 @@ function detectHeaderRow(data: string[][]): number {
     let score = 0
     const rowStr = row.map(cell => safeString(cell)).join('')
 
-    for (const keyword of keywords) {
+    for (const keyword of headerKeywords) {
       if (rowStr.includes(keyword)) {
         score += 2
       }
