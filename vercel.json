@@ -1,4 +1,10 @@
 {
   "buildCommand": "npx prisma db push --skip-generate && npm run db:generate && npm run build",
-  "installCommand": "npm install"
+  "installCommand": "npm install",
+  "crons": [
+    {
+      "path": "/api/cron/recover",
+      "schedule": "* * * * *"
+    }
+  ]
 }
