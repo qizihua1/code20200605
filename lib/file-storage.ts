@@ -62,7 +62,7 @@ export async function retrieveFile(storageKey: string): Promise<Buffer> {
   if (storageKey.startsWith('blob:')) {
     const pathname = storageKey.slice(5)
     console.log('Retrieving from Vercel Blob:', pathname)
-    const blob = await get(pathname)
+    const blob = await get(pathname, { token: process.env.BLOB_READ_WRITE_TOKEN })
     const response = await fetch(blob.url)
     if (!response.ok) {
       throw new Error(`Failed to retrieve file from Vercel Blob: ${response.status} ${response.statusText}`)
