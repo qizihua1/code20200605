@@ -27,10 +27,33 @@ export async function smartParse(buffer: ArrayBuffer, fileName: string) {
   }
 }
 
+// 统一的 Excel/CSV 读取函数，处理编码问题
+function readExcelWorkbook(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer)
+  const isCsvLike = bytes.length > 0 && (
+    // 检查是否以 UTF-8 BOM 开头
+    (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) ||
+    // 检查是否包含 CSV 特征（逗号分隔、多行、非 ZIP/PK 格式）
+    (() => {
+      const sample = new TextDecoder('utf-8').decode(bytes.slice(0, Math.min(500, bytes.length)))
+      return sample.includes(',') && sample.includes('\n') && !sample.includes('PK')
+    })()
+  )
+  
+  if (isCsvLike) {
+    // CSV 文件：使用 UTF-8 解码后以字符串方式读取
+    const csvString = new TextDecoder('utf-8').decode(buffer)
+    return XLSX.read(csvString, { type: 'string' })
+  } else {
+    // Excel 文件：使用 array 方式读取
+    return XLSX.read(buffer, { type: 'array' })
+  }
+}
+
 // 智能解析Excel
 function parseExcel(buffer: ArrayBuffer) {
   try {
-    const workbook = XLSX.read(buffer, { type: 'array' })
+    const workbook = readExcelWorkbook(buffer)
     const parsedData: any[] = []
 
     for (const sheetName of workbook.SheetNames) {
@@ -749,7 +772,7 @@ async function parseWord(buffer: ArrayBuffer) {
 // 使用规则解析
 export function parseWithRule(buffer: ArrayBuffer, rule: any) {
   try {
-    const workbook = XLSX.read(buffer, { type: 'array' })
+    const workbook = readExcelWorkbook(buffer)
     const parsedData: any[] = []
 
     for (const sheetName of workbook.SheetNames) {
@@ -835,7 +858,7 @@ export async function analyzeAndSuggestRule(buffer: ArrayBuffer, fileName: strin
         sampleText: value.substring(0, 1000)
       }
     } else {
-      const workbook = XLSX.read(buffer, { type: 'array' })
+      const workbook = readExcelWorkbook(buffer)
       const sheet = workbook.Sheets[workbook.SheetNames[0]]
       const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as string[][]
 
