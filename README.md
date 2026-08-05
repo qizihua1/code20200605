@@ -1,137 +1,39 @@
 # 万能导入 V2 - 智能多格式批量下单系统
 
-## 源码仓库
-https://github.com/qizihua1/code20200605
+## 提交物清单
 
-## 部署地址
-https://code20200605.vercel.app
+| 序号 | 提交物 | 位置 |
+|------|--------|------|
+| 1 | 在线地址 | https://code20200605.vercel.app |
+| 2 | 源码仓库 | https://github.com/qizihua1/code20200605 |
+| 3 | 压测数据脚本 | `scripts/seed-sku-master.js` + `scripts/generate-stress-test.js` |
+| 4 | 10,000 行压测 Excel | `stress-test-10000rows.xlsx` (通过脚本生成) |
+| 5 | 压测报告 | [STRESS_TEST_REPORT.md](./STRESS_TEST_REPORT.md) |
+| 6 | 架构设计文档 | [ARCHITECTURE.md](./ARCHITECTURE.md) |
+| 7 | 重构假设说明 | [REFACTOR_ASSUMPTIONS.md](./REFACTOR_ASSUMPTIONS.md) |
+| 8 | 接口文档 | [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) |
+| 9 | README | 当前文件 |
+| 10 | 演示账号 | 无需登录，公开访问 |
 
-## 大模型调用说明
+## 在线访问
 
-### 模型选择
-- **模拟 AI 模式**：本项目实现了模拟 AI 规则生成器，无需调用真实的大模型 API，即可体验完整功能
+- **主页**: https://code20200605.vercel.app
+- **导入页**: https://code20200605.vercel.app/import
+- **监控页**: https://code20200605.vercel.app/monitor
+- **API 文档**: https://code20200605.vercel.app/api/import-monitor/summary
 
-### Prompt 设计思路
-模拟 AI 的 Prompt 设计包含以下几个部分：
-1. **文件结构分析**：分析上传文件的表格结构、头部行数、数据起始位置等
-2. **字段识别**：识别出常见的字段名如 `SKU编码`、`商品名称`、`数量`、`收件人`、`电话`、`地址` 等
-3. **规则推荐**：根据文件结构推荐最适合的解析规则类型（标准表格、跳过头部、多Sheet等）
-4. **字段映射**：自动匹配文件列与系统字段的对应关系
+## 快速开始
 
-### API Key 配置方式
-由于使用了模拟 AI 模式，本项目不需要配置真实的 API Key。如需接入真实大模型：
+### 环境变量
 
-1. 创建 `.env` 文件
-2. 配置环境变量：
-   ```bash
-   # OpenAI API Key
-   OPENAI_API_KEY=sk-...
-   
-   # 或者其他大模型提供商
-   # DEEPSEEK_API_KEY=...
-   # CLAUDE_API_KEY=...
-   ```
-3. 修改 `lib/ai-rule-generator.ts`，接入真实的大模型 API
-
-## 项目架构
-
-### 核心技术栈
-- Next.js 14 App Router + TypeScript
-- Prisma + Neon PostgreSQL
-- Vercel 部署
-- 模拟 AI 规则生成（无需真实 AI API）
-
-### 规则引擎设计
-
-#### 规则引擎架构
-1. **规则配置**：用户可通过 UI 创建/编辑解析规则
-2. **AI 辅助生成**：上传文件后 AI 自动分析结构，生成推荐规则
-3. **智能解析**：无需规则也能直接解析文件！
-4. **规则引擎执行**：根据配置的规则解析不同类型的文件
-
-#### 支持的规则类型
-- `standardTable`: 标准表格（第 1 行表头，第 2 行起数据）
-- `skipHeader`: 带头部干扰（跳过前 N 行）
-- `multiSheet`: 多 Sheet 合并
-- `matrixTranspose`: 矩阵转置（SKU×门店）
-- `cardLayout`: 卡片式布局
-- `textParagraph`: 纯文本段落（Word/PDF）
-
-### 已实现功能
-- ✅ 规则管理页面（支持 AI 生成）
-- ✅ 文件导入页面（选择规则 + 解析）
-- ✅ 模拟 AI 规则生成器
-- ✅ 数据库 Schema 设计
-- ✅ 规则引擎解析器
-- ✅ **智能解析功能**（无需规则也能解析文件
-- ✅ **数据预览与编辑功能
-- ✅ **实时校验与导出 Excel 功能
-- ✅ **支持多种 Excel 格式**（配送发货单、多门店出库单、欢乐牧场模板、门店调拨单等）
-
-### 异步事件驱动架构（V4 升级）
-- ✅ **上传即返回** - 接口响应时间 < 1s，立即返回 task_id
-- ✅ **批量处理** - 1000 行/批并行处理，支持 10,000+ 行大文件
-- ✅ **精细化错误追踪** - 行级错误记录，按批次查看
-- ✅ **可观测性看板** - 实时监控吞吐量、错误分布、性能指标
-- ✅ **Trace ID 全链路** - 从上传到处理完成的完整追踪
-- ✅ **容灾降级** - SKU 校验失败自动降级，不影响主流程
-- ✅ **幂等设计** - 批次重试不重复计数
-- ✅ **Vercel Cron** - Outbox 事件自动补发
-
-#### 异步架构 API
-- `POST /api/import-tasks` - 上传文件，返回 task_id
-- `GET /api/import-tasks/:taskId` - 查询任务进度
-- `GET /api/import-tasks/:taskId/batches` - 查询批次详情
-- `GET /api/import-tasks/:taskId/errors` - 查询错误明细
-- `GET /api/import-monitor/summary` - 监控聚合数据
-- `GET /api/traces/:traceId` - Trace 事件查询
-- `POST /api/outbox/dispatch` - 手动触发 Outbox 分发
-- `POST /api/worker/batch` - Worker 批处理入口
-
-#### 监控看板
-- `/monitor` - 实时监控页面
-- `/task/:taskId` - 任务进度详情页
-
-### 使用说明
-
-**重要提示**：文件解析完成后，系统会显示数据预览。若存在错误数据（高亮显示），请按需修改或删除对应行，确认无误后方可点击"提交下单"按钮。
-
-错误类型包括：
-- SKU 编码或名称为空
-- 数量为空或小于等于 0
-- 缺少收货门店或收件人信息
-- 收件人电话格式不正确
-- 外部编码与 SKU 编码组合重复
-
-### 待实现功能
-- ⏳ 规则配置可视化编辑器
-- ⏳ 完整的 9 种格式适配
-- ⏳ 性能优化（虚拟列表等）
-
-## 部署地址
-https://code20200605.vercel.app
-
-## 考试要求对照
-- ✅ 规则引擎架构（非硬编码）
-- ✅ AI 辅助生成规则（模拟）
-- ✅ 数据库存储（Neon）
-- ✅ 鲸天 UI 风格（#0fc6c2 主色）
-- ✅ 智能解析功能（无需规则）
-- ✅ 异步事件驱动架构（V4 升级）
-- ✅ 可观测性与监控看板
-- ⏳ 9 种格式兼容（规则待配置）
-
-## 部署说明
-
-### 环境变量配置
 ```env
-# 数据库连接
+# 数据库 (Neon PostgreSQL)
 DATABASE_URL=postgresql://user:password@host:port/dbname
 
-# Upstash QStash 消息队列
+# Upstash QStash (生产环境消息队列)
 QSTASH_TOKEN=eyJ...
 
-# Vercel Blob 文件存储（可选，开发模式使用内存存储）
+# Vercel Blob (生产环境文件存储)
 BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
 
 # Vercel 环境标识
@@ -139,54 +41,169 @@ VERCEL=true
 ```
 
 ### 本地开发
+
 ```bash
-# 安装依赖
+# 1. 安装依赖
 npm install
 
-# 生成 Prisma Client
+# 2. 生成 Prisma Client
 npx prisma generate
 
-# 数据库迁移
-npx prisma migrate deploy
+# 3. 数据库迁移 (创建表结构)
+npx prisma db push
 
-# 启动开发服务器
-npm run dev
-```
+# 4. 种子数据 (20,000 条 SKU 主数据)
+DATABASE_URL=postgresql://... node scripts/seed-sku-master.js
 
-### 数据生成
-```bash
-# 生成 SKU 主数据和测试文件
-npm run seed-data
+# 5. 生成 10,000 行压测文件
+node scripts/generate-stress-test.js
+
+# 6. 启动开发服务器
+DATABASE_URL=postgresql://... npm run dev
 ```
 
 ### 测试
+
 ```bash
-# 运行单元测试
+# 单元测试
 npm test
 
-# 运行压测脚本
-npm run stress-test
+# 手动测试 API
+# 上传文件 (返回 task_id)
+curl -X POST http://localhost:3000/api/import-tasks -F "file=@test-import.xlsx"
+
+# 查询任务状态
+curl http://localhost:3000/api/import-tasks/{task_id}
+
+# 查询监控汇总
+curl http://localhost:3000/api/import-monitor/summary
+
+# 查询错误明细
+curl http://localhost:3000/api/import-tasks/{task_id}/errors
 ```
 
-## 技术架构详情
+## 项目架构
 
-### 核心流程
-1. 用户上传文件 → 存储到 Vercel Blob → 创建任务和批次 → 写入 Outbox 事件
-2. API 立即返回 task_id → 同时触发即时 Outbox 分发
-3. Worker 消费批次 → 解析文件 → 校验数据 → 批量写入 → 更新进度
-4. 所有批次完成 → 任务状态更新为 COMPLETED/PARTIAL_SUCCESS
+### 核心技术栈
 
-### 关键设计
-- **事务性 Outbox**: 任务创建和事件写入在同一事务中
-- **即时+定时双分发**: 上传时立即分发，Vercel Cron 每分钟补发
-- **幂等处理**: 批次状态检查避免重复处理
-- **批量优化**: 1000 行/批，SKU 批量校验，数据批量写入
-- **全链路追踪**: traceId 贯穿所有操作
+- **框架**: Next.js 14 App Router + TypeScript
+- **ORM**: Prisma
+- **数据库**: Neon PostgreSQL (Serverless)
+- **部署**: Vercel
+- **消息队列**: Upstash QStash (生产) / 本地内存队列 (开发)
+- **文件存储**: Vercel Blob (生产) / 本地文件系统 (开发)
 
-## 文档索引
+### 异步事件驱动架构
+
+```
+用户上传 → 解析文件 → 创建任务+批次+Outbox事件
+  ↓
+立即返回 task_id (响应时间 < 1s)
+  ↓
+Outbox 分发 → Worker 消费批次
+  ↓
+批量解析 → SKU校验 → 批量写入 → 更新进度
+  ↓
+所有批次完成 → 任务状态 COMPLETED
+```
+
+### 关键特性
+
+- ✅ **上传即返回**: API 响应时间 < 1s，立即返回 task_id
+- ✅ **批量处理**: 1000 行/批，支持 10,000+ 行大文件
+- ✅ **精细化错误追踪**: 行级错误记录，按批次筛选查看
+- ✅ **全链路可观测性**: Trace ID 贯穿上传→处理→完成
+- ✅ **容灾降级**: SKU 校验失败自动降级，不影响主流程
+- ✅ **幂等设计**: 批次重试不重复计数
+- ✅ **Vercel Cron**: Outbox 事件自动补发
+- ✅ **监控看板**: 实时吞吐量、错误分布、性能指标
+
+### 数据库表结构
+
+| 表名 | 说明 |
+|------|------|
+| `parsing_rules` | 解析规则配置 |
+| `shipments` | 运单主表 |
+| `shipment_items` | 运单明细 |
+| `sku_master` | SKU 主数据 |
+| `import_tasks` | 导入任务 |
+| `import_task_batches` | 任务批次 |
+| `import_task_errors` | 错误明细 |
+| `event_outbox` | 事件 Outbox |
+| `batch_performance_logs` | 批次性能日志 |
+| `trace_events` | 全链路追踪事件 |
+
+## API 接口
+
+### 上传接口
+
+```
+POST /api/import-tasks
+Content-Type: multipart/form-data
+
+参数:
+- file: Excel/Word/PDF 文件
+- ruleId: (可选) 解析规则 ID
+
+响应:
+{
+  "task_id": "task_xxx",
+  "trace_id": "trace_xxx",
+  "status": "PENDING",
+  "total_rows": 10000,
+  "total_batches": 10
+}
+```
+
+### 任务查询
+
+```
+GET /api/import-tasks?status=PROCESSING&page=1
+
+响应:
+{
+  "tasks": [...],
+  "pagination": { "page": 1, "page_size": 20, "total": 5 }
+}
+```
+
+### 监控聚合
+
+```
+GET /api/import-monitor/summary
+
+响应:
+{
+  "throughput": { "rows_per_minute": 120 },
+  "queue": { "pending_events": 0 },
+  "errors": { "total_last_hour": 5 },
+  ...
+}
+```
+
+## 故障排查
+
+### 常见问题
+
+1. **任务卡在 PENDING 状态**
+   - 检查 Outbox 事件是否已分发: `POST /api/outbox/dispatch`
+   - 检查 QStash 是否可用 (生产环境)
+
+2. **批次卡在 PROCESSING 状态**
+   - 检查 Worker 是否正常运行
+   - 可手动重试: Worker 会检查批次状态避免重复处理
+
+3. **文件上传超时**
+   - 检查文件大小 (建议 < 10MB)
+   - 本地开发使用文件系统存储，Vercel 使用 Blob
+
+4. **SKU 校验失败**
+   - 系统自动降级，跳过 SKU 校验
+   - 可在任务详情查看降级状态
+
+## 文档
 
 - [架构设计文档](./ARCHITECTURE.md) - 异步任务流程图、Outbox 模式、批量处理策略
 - [接口文档](./API_DOCUMENTATION.md) - 上传、任务查询、错误查询、Trace 查询、监控聚合
 - [重构假设说明](./REFACTOR_ASSUMPTIONS.md) - 技术选型、性能推导、容灾设计
-
-详细设计假设请参阅 [REFACTOR_ASSUMPTIONS.md](./REFACTOR_ASSUMPTIONS.md)
+- [压测报告](./STRESS_TEST_REPORT.md) - 10,000 行文件压测结果
