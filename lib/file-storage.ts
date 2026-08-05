@@ -20,7 +20,7 @@ export async function storeFile(
   if (BLOB_ENABLED) {
     try {
       const blob = await put(`imports/${taskId}/${fileName}`, fileBuffer, {
-        access: 'private',
+        access: 'public',
         addRandomSuffix: true,
       })
       console.log('Vercel Blob upload success:', blob.url)
@@ -64,9 +64,10 @@ export async function retrieveFile(storageKey: string): Promise<Buffer> {
     console.log('Retrieving from Vercel Blob:', blobUrl)
     const response = await fetch(blobUrl)
     if (!response.ok) {
-      throw new Error(`Failed to retrieve file from Vercel Blob: ${response.status}`)
+      throw new Error(`Failed to retrieve file from Vercel Blob: ${response.status} ${response.statusText}`)
     }
     const arrayBuffer = await response.arrayBuffer()
+    console.log(`Retrieved ${arrayBuffer.byteLength} bytes from Blob`)
     return Buffer.from(arrayBuffer)
   }
 
