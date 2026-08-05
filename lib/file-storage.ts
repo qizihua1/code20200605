@@ -16,7 +16,7 @@ export async function storeFile(
   }
 
   const base64 = fileBuffer.toString('base64')
-  return { storageKey: `base64:${Buffer.from(base64).toString('base64')}` }
+  return { storageKey: `base64:${base64}` }
 }
 
 export async function retrieveFile(storageKey: string): Promise<Buffer> {

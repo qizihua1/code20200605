@@ -67,45 +67,52 @@ export async function createImportTask(input: CreateImportTaskInput): Promise<Cr
       },
     })
     
+    const batchData = []
+    const outboxData = []
+    
     for (let i = 0; i < totalBatches; i++) {
       const unitId = generateUnitId(i)
       const startRow = i * BATCH_SIZE + 1
       const endRow = Math.min((i + 1) * BATCH_SIZE, totalRows)
       
-      await tx.importTaskBatch.create({
-        data: {
-          taskId,
-          unitId,
-          batchIndex: i,
-          startRow,
-          endRow,
-          status: 'PENDING',
-        },
+      batchData.push({
+        taskId,
+        unitId,
+        batchIndex: i,
+        startRow,
+        endRow,
+        status: 'PENDING',
       })
       
-      await tx.eventOutbox.create({
-        data: {
-          aggregateId: taskId,
-          eventType: 'ImportBatchCreated',
-          payload: {
-            task_id: taskId,
-            unit_id: unitId,
-            batch_index: i,
-            start_row: startRow,
-            end_row: endRow,
-            storage_key: storageKey,
-            file_name: input.fileName,
-            rule_id: input.ruleId,
-          },
-          status: 'PENDING',
+      outboxData.push({
+        aggregateId: taskId,
+        eventType: 'ImportBatchCreated',
+        payload: {
+          task_id: taskId,
+          unit_id: unitId,
+          batch_index: i,
+          start_row: startRow,
+          end_row: endRow,
+          storage_key: storageKey,
+          file_name: input.fileName,
+          rule_id: input.ruleId,
         },
+        status: 'PENDING',
       })
+    }
+    
+    if (batchData.length > 0) {
+      await tx.importTaskBatch.createMany({ data: batchData })
+    }
+    
+    if (outboxData.length > 0) {
+      await tx.eventOutbox.createMany({ data: outboxData })
     }
     
     await logTraceEvent(tx, traceId, 'ImportTaskCreated', 'SUCCESS', `任务创建成功，共 ${totalBatches} 个批次`, taskId)
     
     return task
-  })
+  }, { timeout: 30000 })
   
   return {
     task_id: result.taskId,
@@ -136,7 +143,7 @@ export async function updateTaskProgress(
     where: { taskId_unitId: { taskId, unitId } },
   })
   
-  if (!batch || batch.status === 'COMPLETED' || batch.status === 'PROCESSING') {
+  if (!batch || batch.status === 'COMPLETED') {
     return null
   }
   
