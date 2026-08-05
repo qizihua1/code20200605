@@ -1,6 +1,6 @@
 import { prisma } from './prisma'
 import { generateTaskId, generateTraceId, generateUnitId, logTraceEvent } from './trace'
-import { parseWithRule } from './parser'
+import { parseWithRule, smartParse } from './parser'
 import { storeFile, retrieveFile } from './file-storage'
 
 const BATCH_SIZE = 1000
@@ -41,6 +41,17 @@ export async function createImportTask(input: CreateImportTaskInput): Promise<Cr
     if (parseResult.success && parseResult.data) {
       parsedData = parseResult.data
       totalRows = parsedData.length
+    }
+  } else {
+    // 无规则时，使用智能解析快速获取行数
+    try {
+      const parseResult = await smartParse(input.file, input.fileName)
+      if (parseResult.success && parseResult.data) {
+        parsedData = parseResult.data
+        totalRows = parseResult.data.length
+      }
+    } catch (e) {
+      console.warn('智能解析失败，使用估算行数:', e)
     }
   }
   

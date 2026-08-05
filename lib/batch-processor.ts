@@ -1,5 +1,5 @@
 import { prisma } from './prisma'
-import { parseWithRule } from './parser'
+import { parseWithRule, smartParse } from './parser'
 import { logTraceEvent } from './trace'
 import { ErrorCodes, maskSensitiveValue } from './errors'
 import { updateTaskProgress, markTaskAsFailed, setTaskDegraded } from './task-service'
@@ -61,14 +61,23 @@ export async function processBatch(jobPayload: {
     const parseStart = Date.now()
     let parsedData: any[] = []
     
-    if (storage_key && rule_id) {
+    if (storage_key) {
       try {
         const fileBuffer = await retrieveFile(storage_key)
         const arrayBuffer = fileBuffer.buffer.slice(fileBuffer.byteOffset, fileBuffer.byteOffset + fileBuffer.byteLength)
-        const rule = await prisma.parsingRule.findUnique({ where: { id: rule_id } })
         
-        if (rule) {
-          const parseResult = parseWithRule(arrayBuffer as ArrayBuffer, rule)
+        if (rule_id) {
+          // 有规则：使用规则解析
+          const rule = await prisma.parsingRule.findUnique({ where: { id: rule_id } })
+          if (rule) {
+            const parseResult = parseWithRule(arrayBuffer as ArrayBuffer, rule)
+            if (parseResult.success && parseResult.data) {
+              parsedData = parseResult.data
+            }
+          }
+        } else {
+          // 无规则：使用智能解析
+          const parseResult = await smartParse(arrayBuffer as ArrayBuffer, file_name)
           if (parseResult.success && parseResult.data) {
             parsedData = parseResult.data
           }
